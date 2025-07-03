@@ -6,21 +6,17 @@ import io
 
 # --- Configuración de página ---
 st.set_page_config(
-    page_title="📊 Backtest PRT Statistics",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="📊 Backtest PRT Completo",
+    layout="wide"
 )
 
-st.title("📊 Backtest PRT Statistics")
-st.markdown("Carga el reporte de operaciones de ProRealTime y calcula automáticamente la curva de equity y las métricas clave.")
+st.title("🚀 Análisis Completo de Backtest PRT")
+st.markdown("Carga tu reporte de operaciones de ProRealTime y obtén todas las métricas clásicas más la curva de equity.")
 
-# --- Funciones de carga y cálculo ---
+# --- Función de carga ---
 @st.cache_data
 def load_prt_trades(file):
-    """Carga y limpia el CSV de operaciones exportado por ProRealTime."""
     df = pd.read_csv(file, sep='\t', decimal=',')
-
-    # Renombrar columnas
     df = df.rename(columns={
         'Fecha entrada': 'Entry Date',
         'Fecha salida':  'Exit Date',
@@ -30,154 +26,147 @@ def load_prt_trades(file):
         'MFE':           'MFE',
         'MAE':           'MAE'
     })
-
-    # Mapeo de meses españoles a abreviaturas en inglés
+    # Mapeo meses ES→EN para parseo fiable
     month_map = {
-        'ene': 'Jan', 'feb': 'Feb', 'mar': 'Mar', 'abr': 'Apr',
-        'may': 'May', 'jun': 'Jun', 'jul': 'Jul', 'ago': 'Aug',
-        'sep': 'Sep', 'oct': 'Oct', 'nov': 'Nov', 'dic': 'Dec'
+      'ene':'Jan','feb':'Feb','mar':'Mar','abr':'Apr','may':'May','jun':'Jun',
+      'jul':'Jul','ago':'Aug','sep':'Sep','oct':'Oct','nov':'Nov','dic':'Dec'
     }
-
-    # Función auxiliar para traducir meses y parsear
-    def parse_dates(col):
+    for col in ['Entry Date','Exit Date']:
         s = df[col].astype(str).str.lower()
-        for esp, eng in month_map.items():
-            s = s.str.replace(esp, eng, regex=True)
-        return pd.to_datetime(s, format='%d %b %Y, %H:%M:%S', dayfirst=True, errors='coerce')
-
-    # Parseo de fechas
-    df['Entry Date'] = parse_dates('Entry Date')
-    df['Exit Date']  = parse_dates('Exit Date')
-
-    # Eliminar filas con fechas inválidas
-    mask_invalid = df['Entry Date'].isna() | df['Exit Date'].isna()
-    if mask_invalid.any():
-        st.warning(f"{mask_invalid.sum()} fila(s) con fecha no reconocida y serán descartadas.")
-        df = df.loc[~mask_invalid].copy()
-
+        for es, en in month_map.items():
+            s = s.str.replace(es, en, regex=True)
+        df[col] = pd.to_datetime(s, format='%d %b %Y, %H:%M:%S', dayfirst=True, errors='coerce')
+    # Descarta filas sin fecha válida
+    df = df.dropna(subset=['Entry Date','Exit Date'])
     # Profit % → decimal
-    if 'Profit %' in df.columns:
-        df['Profit %'] = (
-            df['Profit %']
-              .astype(str)
-              .str.replace('%','', regex=False)
-              .str.replace(',','.', regex=False)
-              .astype(float, errors='ignore')
-              .fillna(0.0) / 100
-        )
-    else:
-        df['Profit %'] = 0.0
-
+    df['Profit %'] = (
+        df['Profit %'].astype(str)
+          .str.replace('%','', regex=False)
+          .str.replace(',','.', regex=False)
+          .astype(float, errors='ignore')
+          .fillna(0.0) / 100
+    )
     # Profit absoluto → float
-    if 'Profit' in df.columns:
-        df['Profit'] = (
-            df['Profit']
-              .astype(str)
-              .str.replace('[^0-9,.-]', '', regex=True)
-              .str.replace('\.', '', regex=True)   # elimina puntos de miles
-              .str.replace(',', '.', regex=False)  # pasa coma a punto
-              .astype(float, errors='ignore')
-              .fillna(0.0)
-        )
-    else:
-        df['Profit'] = 0.0
-
+    df['Profit'] = (
+        df['Profit'].astype(str)
+          .str.replace('[^0-9,.-]','', regex=True)
+          .str.replace('\.','', regex=True)
+          .str.replace(',','.', regex=False)
+          .astype(float, errors='ignore')
+          .fillna(0.0)
+    )
     return df
 
-
-
-def compute_equity_series(trades_df: pd.DataFrame, initial_cap: float) -> pd.DataFrame:
-    """Construye la serie de equity a partir de los trades y capital inicial."""
-    df = trades_df.sort_values('Exit Date').copy()
-    df['Equity'] = initial_cap + df['Profit'].cumsum()
+# --- Funciones métricas ---
+def compute_equity(trades, init_cap):
+    df = trades.sort_values('Exit Date').copy()
+    df['Equity'] = init_cap + df['Profit'].cumsum()
     equity = pd.DataFrame({
         'Date':   [df['Entry Date'].min()] + df['Exit Date'].tolist(),
-        'Equity': [initial_cap] + df['Equity'].tolist()
+        'Equity': [init_cap] + df['Equity'].tolist()
     })
+    equity = equity.set_index('Date')
     return equity
 
-def max_drawdown(equity: pd.Series) -> float:
-    """Calcula el Max Drawdown (mínimo porcentaje)."""
-    cum_max = equity.cummax()
-    drawdown = (equity - cum_max) / cum_max
-    return drawdown.min()
-
-def annualized_return(equity: pd.Series, dates: pd.Series) -> float:
-    """Calcula el CAGR sobre la serie de equity."""
-    days = (dates.iloc[-1] - dates.iloc[0]).days
-    if days <= 0:
-        return 0.0
-    total_ret = equity.iloc[-1] / equity.iloc[0]
-    return total_ret ** (365.0 / days) - 1
-
-def sharpe_ratio(equity: pd.Series, rf: float = 0.0) -> float:
-    """Calcula el Sharpe Ratio asumiendo retornos diarios."""
+def calculate_metrics(trades, equity):
+    ini = equity.iloc[0]
+    fin = equity.iloc[-1]
+    total_profit = fin - ini
+    growth = fin/ini - 1
+    # CAGR
+    days = (equity.index[-1] - equity.index[0]).days or 1
+    cagr = (fin/ini)**(365/days) - 1
+    # Max Drawdown
+    cummax = equity.cummax()
+    dd = (equity - cummax) / cummax
+    mdd_pct = dd.min()
+    mdd_abs = (equity - cummax).min()
+    # Sharpe
     daily = equity.pct_change().dropna()
-    if daily.std() == 0:
-        return 0.0
-    return (daily.mean() - rf/252) / daily.std() * np.sqrt(252)
+    sharpe = (daily.mean() / daily.std() * np.sqrt(252)) if daily.std()!=0 else 0.0
+    # Trades stats
+    n = len(trades)
+    wins  = trades[trades['Profit']>0]
+    losses= trades[trades['Profit']<0]
+    win_rate = len(wins)/n if n>0 else 0
+    avg_dur = (trades['Exit Date']-trades['Entry Date']).dt.days.mean() if n>0 else 0
+    avg_ret_trade = trades['Profit %'].mean() if 'Profit %' in trades else 0
+    gross_profit = wins['Profit'].sum()
+    gross_loss  = abs(losses['Profit'].sum())
+    pf = gross_profit/gross_loss if gross_loss>0 else np.nan
+    avg_win = wins['Profit %'].mean() if not wins.empty else 0
+    avg_loss= abs(losses['Profit %'].mean()) if not losses.empty else 0
+    payoff = avg_win/avg_loss if avg_loss>0 else np.nan
 
-# --- Sidebar: carga y parámetros ---
-st.sidebar.header("📁 Carga de Datos y Parámetros")
-trades_file = st.sidebar.file_uploader("Operaciones (CSV PRT)", type=["csv","txt"])
-initial_cap = st.sidebar.number_input("Capital Inicial", min_value=0.0, value=10000.0, step=100.0, format="%.2f")
+    return {
+      "Beneficio Total":         total_profit,
+      "Crecimiento Capital":     growth,
+      "CAGR":                    cagr,
+      "Max Drawdown %":          mdd_pct,
+      "Max Drawdown $":          mdd_abs,
+      "Sharpe Ratio":            sharpe,
+      "Total Operaciones":       n,
+      "% Ganadoras":             win_rate,
+      "Duración Media (días)":   avg_dur,
+      "Retorno Medio/Op. (%)":   avg_ret_trade,
+      "Factor de Beneficio":     pf,
+      "Ratio Payoff":            payoff
+    }
+
+# --- Sidebar ---
+st.sidebar.header("📁 Carga de Datos")
+trades_file = st.sidebar.file_uploader("Reporte PRT (CSV)", type=["csv","txt"])
+initial_cap = st.sidebar.number_input("Capital Inicial", value=10000.0, min_value=0.0, step=100.0, format="%.2f")
 
 if not trades_file:
-    st.info("👈 Por favor, sube el reporte de operaciones exportado por ProRealTime.")
+    st.sidebar.warning("Por favor, sube primero el CSV de operaciones.")
     st.stop()
 
 # --- Procesamiento ---
 trades = load_prt_trades(trades_file)
-equity_df = compute_equity_series(trades, initial_cap)
-dates = equity_df['Date']
-eq_values = equity_df['Equity']
+equity = compute_equity(trades, initial_cap)
+metrics = calculate_metrics(trades, equity)
 
-cagr = annualized_return(eq_values, dates)
-mdd  = max_drawdown(eq_values)
-shp  = sharpe_ratio(eq_values)
+# --- Pestañas ---
+tabs = st.tabs(["📊 Resumen Métricas","📈 Equity & Drawdown","📝 Operaciones (Trades)"])
 
-# --- Visualización ---
-st.subheader("🏷️ Resumen de Métricas")
-col1, col2, col3 = st.columns(3)
-col1.metric("CAGR",           f"{cagr*100:.2f}%")
-col2.metric("Max Drawdown",   f"{mdd*100:.2f}%")
-col3.metric("Sharpe Ratio",   f"{shp:.2f}")
+with tabs[0]:
+    st.header("📋 Resumen de Métricas")
+    # Mostrar en cuatro columnas
+    cols = st.columns(4)
+    keys = list(metrics.keys())
+    for i, key in enumerate(keys):
+        val = metrics[key]
+        # formateo
+        if "Ratio" in key or "Sharpe" in key or "Payoff" in key or "CAGR" in key or "Retorno" in key or "Crecimiento" in key:
+            disp = f"{val*100:.2f}%" if "Max Drawdown" not in key else f"{val*100:.2f}%"
+        elif "Total Operaciones" in key:
+            disp = f"{int(val)}"
+        else:
+            disp = f"${val:,.2f}"
+        cols[i%4].metric(label=key, value=disp)
 
-st.subheader("📈 Curva de Equity")
-fig, ax = plt.subplots()
-ax.plot(dates, eq_values, linewidth=2)
-ax.set_xlabel("Fecha")
-ax.set_ylabel("Equity")
-ax.grid(True)
-st.pyplot(fig)
+with tabs[1]:
+    st.header("📈 Curva de Equity y Drawdown")
+    fig, ax = plt.subplots(1,2, figsize=(12,4))
+    # Equity
+    ax[0].plot(equity.index, equity['Equity'], linewidth=2)
+    ax[0].set_title("Curva de Equity")
+    ax[0].set_xlabel("Fecha"); ax[0].set_ylabel("Equity")
+    ax[0].grid(True)
+    # Drawdown %
+    cummax = equity['Equity'].cummax()
+    dd = (equity['Equity'] - cummax)/cummax * 100
+    ax[1].fill_between(dd.index, dd, 0, color='red')
+    ax[1].set_title("Drawdown (%)")
+    ax[1].set_xlabel("Fecha"); ax[1].set_ylabel("Drawdown %")
+    ax[1].grid(True)
+    st.pyplot(fig)
 
-st.subheader("📑 Detalle de Operaciones")
-st.dataframe(
-    trades[['Entry Date','Exit Date','Side','Profit','Profit %','MFE','MAE']]
-    .reset_index(drop=True),
-    use_container_width=True
-)
-
-# --- Exportar Informe Excel ---
-def generate_excel(trades_df, equity_df, metrics: dict):
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        trades_df.to_excel(writer, sheet_name="Operaciones", index=False)
-        equity_df.to_excel(writer, sheet_name="Curva Equity", index=False)
-        pd.DataFrame.from_dict(metrics, orient='index', columns=['Valor']).to_excel(writer, sheet_name="Métricas")
-    buf.seek(0)
-    return buf
-
-metrics_dict = {
-    "CAGR":           f"{cagr:.6f}",
-    "Max Drawdown %": f"{mdd:.6f}",
-    "Sharpe Ratio":   f"{shp:.4f}"
-}
-
-excel_buf = generate_excel(trades, equity_df, metrics_dict)
-st.sidebar.download_button(
-    "📥 Descargar Informe Excel",
-    excel_buf,
-    file_name="backtest_prt_stats.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+with tabs[2]:
+    st.header("📝 Detalle de Operaciones")
+    st.dataframe(
+        trades[['Entry Date','Exit Date','Side','Profit','Profit %','MFE','MAE']]
+        .reset_index(drop=True),
+        use_container_width=True
+    )
