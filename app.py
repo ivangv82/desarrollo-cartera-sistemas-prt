@@ -16,7 +16,17 @@ st.markdown("Carga tu reporte de operaciones de ProRealTime y obtén todas las m
 # --- Función de carga ---
 @st.cache_data
 def load_prt_trades(file):
+    """Carga y limpia el CSV de operaciones exportado por ProRealTime."""
+    # 1) Intento tab separado (export estándar PRT)
     df = pd.read_csv(file, sep='\t', decimal=',')
+    # 2) Si solo hay UNA columna, fue con coma => recargamos con sep=','
+    if df.shape[1] == 1:
+        df = pd.read_csv(file, sep=',', decimal=',')
+        # A veces la primera columna queda vacía, la eliminamos
+        if "" in df.columns:
+            df = df.drop(columns=[""])
+    
+    # Renombramos a nuestro estándar
     df = df.rename(columns={
         'Fecha entrada': 'Entry Date',
         'Fecha salida':  'Exit Date',
@@ -26,7 +36,8 @@ def load_prt_trades(file):
         'MFE':           'MFE',
         'MAE':           'MAE'
     })
-    # Mapeo meses ES→EN para parseo fiable
+
+    # Mapear meses ES→EN para parseo fiable
     month_map = {
       'ene':'Jan','feb':'Feb','mar':'Mar','abr':'Apr','may':'May','jun':'Jun',
       'jul':'Jul','ago':'Aug','sep':'Sep','oct':'Oct','nov':'Nov','dic':'Dec'
@@ -36,8 +47,10 @@ def load_prt_trades(file):
         for es, en in month_map.items():
             s = s.str.replace(es, en, regex=True)
         df[col] = pd.to_datetime(s, format='%d %b %Y, %H:%M:%S', dayfirst=True, errors='coerce')
-    # Descarta filas sin fecha válida
+
+    # Eliminamos filas sin fecha válida
     df = df.dropna(subset=['Entry Date','Exit Date'])
+
     # Profit % → decimal
     df['Profit %'] = (
         df['Profit %'].astype(str)
@@ -50,12 +63,14 @@ def load_prt_trades(file):
     df['Profit'] = (
         df['Profit'].astype(str)
           .str.replace('[^0-9,.-]','', regex=True)
-          .str.replace('\.','', regex=True)
-          .str.replace(',','.', regex=False)
+          .str.replace('\.','', regex=True)   # quita miles
+          .str.replace(',','.', regex=False)  # pasa coma a punto
           .astype(float, errors='ignore')
           .fillna(0.0)
     )
+
     return df
+
 
 # --- Funciones métricas ---
 def compute_equity(trades, init_cap):
