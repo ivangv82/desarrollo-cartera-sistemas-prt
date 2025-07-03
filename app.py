@@ -38,16 +38,24 @@ def load_prt_trades(file):
     })
 
     # Mapear meses ES→EN para parseo fiable
+   # Mapear meses ES→EN
     month_map = {
         'ene':'Jan','feb':'Feb','mar':'Mar','abr':'Apr','may':'May','jun':'Jun',
-        'jul':'Jul','ago':'Aug','sep':'Sep','sept':'Sep',  
+        'jul':'Jul','ago':'Aug','sep':'Sep','sept':'Sep',
         'oct':'Oct','nov':'Nov','dic':'Dec'
     }
+    
     for col in ['Entry Date','Exit Date']:
         s = df[col].astype(str).str.lower()
         for es, en in month_map.items():
             s = s.str.replace(es, en, regex=True)
-        df[col] = pd.to_datetime(s, format='%d %b %Y, %H:%M:%S', dayfirst=True, errors='coerce')
+        # Inferimos el formato, acepta yy o yyyy, distintos separadores, comas, espacios…
+        df[col] = pd.to_datetime(
+            s,
+            dayfirst=True,
+            infer_datetime_format=True,
+            errors='coerce'
+        )
 
     # Eliminamos filas sin fecha válida
     df = df.dropna(subset=['Entry Date','Exit Date'])
