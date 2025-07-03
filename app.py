@@ -68,50 +68,65 @@ def compute_equity(trades, init_cap):
     equity = equity.set_index('Date')
     return equity
 
-def calculate_metrics(trades, equity):
+def calculate_metrics(trades: pd.DataFrame, equity_df: pd.DataFrame) -> dict:
+    """Calcula todas las métricas clave a partir de trades y la curva de equity."""
+    # Extraemos la serie de equity
+    equity = equity_df['Equity']
+
+    # Capital inicial y final
     ini = equity.iloc[0]
     fin = equity.iloc[-1]
+
+    # Total P&L y crecimiento
     total_profit = fin - ini
-    growth = fin/ini - 1
+    growth = fin / ini - 1
+
     # CAGR
     days = (equity.index[-1] - equity.index[0]).days or 1
-    cagr = (fin/ini)**(365/days) - 1
-    # Max Drawdown
+    cagr = (fin / ini) ** (365.0 / days) - 1
+
+    # Drawdowns
     cummax = equity.cummax()
-    dd = (equity - cummax) / cummax
-    mdd_pct = dd.min()
+    dd_rel = (equity - cummax) / cummax
+    mdd_pct = dd_rel.min()
     mdd_abs = (equity - cummax).min()
-    # Sharpe
+
+    # Sharpe Ratio (retornos diarios)
     daily = equity.pct_change().dropna()
-    sharpe = (daily.mean() / daily.std() * np.sqrt(252)) if daily.std()!=0 else 0.0
-    # Trades stats
+    std_dev = daily.std()
+    sharpe = (daily.mean() / std_dev * np.sqrt(252)) if std_dev > 0 else 0.0
+
+    # Estadísticas de trades
     n = len(trades)
-    wins  = trades[trades['Profit']>0]
-    losses= trades[trades['Profit']<0]
-    win_rate = len(wins)/n if n>0 else 0
-    avg_dur = (trades['Exit Date']-trades['Entry Date']).dt.days.mean() if n>0 else 0
-    avg_ret_trade = trades['Profit %'].mean() if 'Profit %' in trades else 0
+    wins   = trades[trades['Profit'] > 0]
+    losses = trades[trades['Profit'] < 0]
+    win_rate = len(wins) / n if n > 0 else 0.0
+    avg_dur = (trades['Exit Date'] - trades['Entry Date']).dt.days.mean() if n > 0 else 0.0
+    avg_ret_trade = trades['Profit %'].mean() if 'Profit %' in trades else 0.0
+
     gross_profit = wins['Profit'].sum()
-    gross_loss  = abs(losses['Profit'].sum())
-    pf = gross_profit/gross_loss if gross_loss>0 else np.nan
-    avg_win = wins['Profit %'].mean() if not wins.empty else 0
-    avg_loss= abs(losses['Profit %'].mean()) if not losses.empty else 0
-    payoff = avg_win/avg_loss if avg_loss>0 else np.nan
+    gross_loss   = abs(losses['Profit'].sum())
+    pf = gross_profit / gross_loss if gross_loss > 0 else np.nan
+
+    avg_win = wins['Profit %'].mean() if not wins.empty else 0.0
+    avg_loss = abs(losses['Profit %'].mean()) if not losses.empty else 0.0
+    payoff = avg_win / avg_loss if avg_loss > 0 else np.nan
 
     return {
-      "Beneficio Total":         total_profit,
-      "Crecimiento Capital":     growth,
-      "CAGR":                    cagr,
-      "Max Drawdown %":          mdd_pct,
-      "Max Drawdown $":          mdd_abs,
-      "Sharpe Ratio":            sharpe,
-      "Total Operaciones":       n,
-      "% Ganadoras":             win_rate,
-      "Duración Media (días)":   avg_dur,
-      "Retorno Medio/Op. (%)":   avg_ret_trade,
-      "Factor de Beneficio":     pf,
-      "Ratio Payoff":            payoff
+        "Beneficio Total":       total_profit,
+        "Crecimiento Capital":   growth,
+        "CAGR":                  cagr,
+        "Max Drawdown %":        mdd_pct,
+        "Max Drawdown $":        mdd_abs,
+        "Sharpe Ratio":          sharpe,
+        "Total Operaciones":     n,
+        "% Ganadoras":           win_rate,
+        "Duración Media (días)": avg_dur,
+        "Retorno Medio/Op. (%)": avg_ret_trade,
+        "Factor de Beneficio":   pf,
+        "Ratio Payoff":          payoff
     }
+}
 
 # --- Sidebar ---
 st.sidebar.header("📁 Carga de Datos")
