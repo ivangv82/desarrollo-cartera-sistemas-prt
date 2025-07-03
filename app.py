@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import io
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from dateutil import parser
 
 
@@ -217,20 +219,69 @@ with tabs[0]:
 
 with tabs[1]:
     st.header("📈 Curva de Equity y Drawdown")
-    fig, ax = plt.subplots(1,2, figsize=(12,4))
-    # Equity
-    ax[0].plot(equity.index, equity['Equity'], linewidth=2)
-    ax[0].set_title("Curva de Equity")
-    ax[0].set_xlabel("Fecha"); ax[0].set_ylabel("Equity")
-    ax[0].grid(True)
+
+    # Preparamos datos
+    dates = equity.index
+    eq    = equity['Equity']
     # Drawdown %
-    cummax = equity['Equity'].cummax()
-    dd = (equity['Equity'] - cummax)/cummax * 100
-    ax[1].fill_between(dd.index, dd, 0, color='red')
-    ax[1].set_title("Drawdown (%)")
-    ax[1].set_xlabel("Fecha"); ax[1].set_ylabel("Drawdown %")
-    ax[1].grid(True)
-    st.pyplot(fig)
+    cummax = eq.cummax()
+    dd_pct = (eq - cummax) / cummax * 100
+
+    # Creamos subplots
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        row_heights=[0.7, 0.3],
+        subplot_titles=("Curva de Equity", "Drawdown (%)")
+    )
+
+    # Equity
+    fig.add_trace(
+        go.Scatter(
+            x=dates, y=eq,
+            mode='lines',
+            name='Equity',
+            line=dict(width=2, color='royalblue'),
+            hovertemplate='%{x|%d %b %Y}<br>Equity: %{y:$,.2f}<extra></extra>'
+        ),
+        row=1, col=1
+    )
+
+    # Drawdown
+    fig.add_trace(
+        go.Scatter(
+            x=dates, y=dd_pct,
+            mode='lines',
+            name='Drawdown',
+            fill='tozeroy',
+            line=dict(color='indianred'),
+            hovertemplate='%{x|%d %b %Y}<br>Drawdown: %{y:.2f}%<extra></extra>'
+        ),
+        row=2, col=1
+    )
+
+    # Layout común
+    fig.update_layout(
+        height=600,
+        margin=dict(l=50, r=20, t=50, b=50),
+        showlegend=False,
+        hovermode='x unified'
+    )
+
+    # Ajuste eje X
+    fig.update_xaxes(
+        tickformat="%d %b %Y",
+        tickangle=45,
+        nticks=10,
+        row=2, col=1
+    )
+
+    # Etiquetas eje Y
+    fig.update_yaxes(title_text="Equity", row=1, col=1)
+    fig.update_yaxes(title_text="Drawdown %", row=2, col=1)
+
+    st.plotly_chart(fig, use_container_width=True)
 
 with tabs[2]:
     st.header("📝 Detalle de Operaciones")
