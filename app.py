@@ -551,9 +551,9 @@ with tabs[5]:
             # 3) Simulaciones post-shock
             sims = np.zeros((horizon_bars, sims_stress))
             for i in range(sims_stress):
-                # muestreamos retornos con reemplazo
                 seq = np.random.choice(ret_arr, size=horizon_bars, replace=True)
-                sims[i] = shocked * np.cumprod(1 + seq)
+                sims[:, i] = shocked * np.cumprod(1 + seq)
+
 
             # 4) Tiempo hasta recuperación: la primera vela donde equity >= init
             ttrs = []
