@@ -19,6 +19,8 @@ st.markdown("Carga el reporte de operaciones de ProRealTime y calcula automátic
 def load_prt_trades(file):
     """Carga y limpia el CSV de operaciones exportado por ProRealTime."""
     df = pd.read_csv(file, sep='\t', decimal=',')
+
+    # Renombrar columnas
     df = df.rename(columns={
         'Fecha entrada': 'Entry Date',
         'Fecha salida':  'Exit Date',
@@ -29,35 +31,59 @@ def load_prt_trades(file):
         'MAE':           'MAE'
     })
 
-    # Intentamos parsear con inferencia en lugar de formato fijo
-    df['Entry Date'] = pd.to_datetime(df['Entry Date'], dayfirst=True, errors='coerce')
-    df['Exit Date']  = pd.to_datetime(df['Exit Date'],  dayfirst=True, errors='coerce')
+    # Mapeo de meses españoles a abreviaturas en inglés
+    month_map = {
+        'ene': 'Jan', 'feb': 'Feb', 'mar': 'Mar', 'abr': 'Apr',
+        'may': 'May', 'jun': 'Jun', 'jul': 'Jul', 'ago': 'Aug',
+        'sep': 'Sep', 'oct': 'Oct', 'nov': 'Nov', 'dic': 'Dec'
+    }
 
-    # Detectamos filas con fechas inválidas y las notificamos
-    invalid = df['Entry Date'].isna() | df['Exit Date'].isna()
-    if invalid.any():
-        st.warning(f"{invalid.sum()} fila(s) con fecha no reconocida y serán descartadas.")
-        df = df.loc[~invalid].copy()
+    # Función auxiliar para traducir meses y parsear
+    def parse_dates(col):
+        s = df[col].astype(str).str.lower()
+        for esp, eng in month_map.items():
+            s = s.str.replace(esp, eng, regex=True)
+        return pd.to_datetime(s, format='%d %b %Y, %H:%M:%S', dayfirst=True, errors='coerce')
+
+    # Parseo de fechas
+    df['Entry Date'] = parse_dates('Entry Date')
+    df['Exit Date']  = parse_dates('Exit Date')
+
+    # Eliminar filas con fechas inválidas
+    mask_invalid = df['Entry Date'].isna() | df['Exit Date'].isna()
+    if mask_invalid.any():
+        st.warning(f"{mask_invalid.sum()} fila(s) con fecha no reconocida y serán descartadas.")
+        df = df.loc[~mask_invalid].copy()
 
     # Profit % → decimal
-    df['Profit %'] = (
-        df['Profit %']
-          .str.replace('%','')
-          .str.replace(',','.')
-          .astype(float, errors='ignore')
-          .fillna(0.0) / 100
-    )
+    if 'Profit %' in df.columns:
+        df['Profit %'] = (
+            df['Profit %']
+              .astype(str)
+              .str.replace('%','', regex=False)
+              .str.replace(',','.', regex=False)
+              .astype(float, errors='ignore')
+              .fillna(0.0) / 100
+        )
+    else:
+        df['Profit %'] = 0.0
+
     # Profit absoluto → float
-    df['Profit'] = (
-        df['Profit']
-          .str.replace('[^0-9,.-]', '', regex=True)
-          .str.replace('.','', regex=False)   # miles
-          .str.replace(',','.', regex=False)  # decimal
-          .astype(float, errors='ignore')
-          .fillna(0.0)
-    )
+    if 'Profit' in df.columns:
+        df['Profit'] = (
+            df['Profit']
+              .astype(str)
+              .str.replace('[^0-9,.-]', '', regex=True)
+              .str.replace('\.', '', regex=True)   # elimina puntos de miles
+              .str.replace(',', '.', regex=False)  # pasa coma a punto
+              .astype(float, errors='ignore')
+              .fillna(0.0)
+        )
+    else:
+        df['Profit'] = 0.0
 
     return df
+
 
 
 def compute_equity_series(trades_df: pd.DataFrame, initial_cap: float) -> pd.DataFrame:
