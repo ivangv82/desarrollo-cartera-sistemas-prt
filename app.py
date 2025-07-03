@@ -388,13 +388,14 @@ with tabs[3]:
             template='plotly_white', showlegend=False
         )
         st.plotly_chart(hist2, use_container_width=True)
-with tabs[4]: # Monte Carlo Block Bootstrap
+
+with tabs[4]: 
     st.header("🎲 Simulación Monte Carlo (Block Bootstrap)")
-    st.markdown("Muestrea bloques de retornos para intentar preservar la autocorrelación.")
+    st.markdown("Muestrea bloques de retornos para intentar preservar la autocorrelación de la estrategia.")
     
     mc_block_cols = st.columns(2)
-    block_size = mc_block_cols[0].number_input("Tamaño de bloque (operaciones)", 1, 100, 5, 1)
-    n_sims_bb = mc_block_cols[1].number_input("Número de simulaciones (BB)", 100, 10000, 1000, 100)
+    block_size = mc_block_cols[0].number_input("Tamaño de bloque (operaciones)", 1, 100, 5, 1, key="bb_block_size")
+    n_sims_bb = mc_block_cols[1].number_input("Número de simulaciones (BB)", 100, 10000, 1000, 100, key="bb_n_sims")
 
     horizon_bb = len(trade_returns)
     if horizon_bb < 1: st.warning("No hay operaciones suficientes para ejecutar."); st.stop()
@@ -410,27 +411,50 @@ with tabs[4]: # Monte Carlo Block Bootstrap
                 sims_eq_bb = sims_rel_bb * initial_value
                 final_vals_bb = sims_eq_bb[-1, :]
 
-                # Calcular estadísticas
+                # Calcular MDD para cada simulación
+                mdds_bb = np.apply_along_axis(max_dd, 0, sims_eq_bb) * 100
+
+                st.subheader("📈 Estadísticas del Capital Final (Block Bootstrap)")
                 stats_bb = {
                     "Media": final_vals_bb.mean(), "Mediana": np.median(final_vals_bb),
                     "P10": np.percentile(final_vals_bb, 10), "P90": np.percentile(final_vals_bb, 90),
                     "VaR 95%": np.percentile(final_vals_bb, 5), "CVaR 95%": final_vals_bb[final_vals_bb <= np.percentile(final_vals_bb, 5)].mean()
                 }
-                mdds_bb = np.apply_along_axis(max_dd, 0, sims_eq_bb) * 100
-
-                st.subheader("📈 Estadísticas del Capital Final (Block Bootstrap)")
                 stat_cols_bb = st.columns(len(stats_bb))
                 for idx, (label, value) in enumerate(stats_bb.items()):
                     stat_cols_bb[idx].metric(label, f"${value:,.2f}")
 
-                # Gráficos (reutilizamos la lógica anterior)
-                sim_dates = trade_returns.index
+                # --- GRÁFICO ENVELOPE (CORREGIDO) ---
+                # Usamos el índice de la curva de equity omitiendo el primer punto para que coincida con la longitud de la simulación
+                sim_plot_dates = equity.index[1:]
+
                 fig_env_bb = go.Figure()
-                fig_env_bb.add_trace(go.Scatter(x=sim_dates, y=np.percentile(sims_eq_bb, 95, axis=1), fill=None, mode='lines', line_color='lightgrey', showlegend=False))
-                fig_env_bb.add_trace(go.Scatter(x=sim_dates, y=np.percentile(sims_eq_bb, 5, axis=1), fill='tonexty', mode='lines', line_color='lightgrey', name='5%-95%'))
-                fig_env_bb.add_trace(go.Scatter(x=sim_dates, y=np.percentile(sims_eq_bb, 50, axis=1), mode='lines', name='Mediana', line=dict(color='orange', dash='dash')))
+                fig_env_bb.add_trace(go.Scatter(x=sim_plot_dates, y=np.percentile(sims_eq_bb, 95, axis=1), fill=None, mode='lines', line_color='lightgrey', showlegend=False))
+                fig_env_bb.add_trace(go.Scatter(x=sim_plot_dates, y=np.percentile(sims_eq_bb, 5, axis=1), fill='tonexty', mode='lines', line_color='lightgrey', name='5%-95%'))
+                fig_env_bb.add_trace(go.Scatter(x=sim_plot_dates, y=np.percentile(sims_eq_bb, 50, axis=1), mode='lines', name='Mediana', line=dict(color='orange', dash='dash')))
+                # Dibujamos la curva histórica por encima para que se vea bien
                 fig_env_bb.add_trace(go.Scatter(x=equity.index, y=equity['Equity'], mode='lines', name='Histórico', line=dict(color='blue', width=3)))
-                fig_env_bb.update_layout(title="Simulaciones Monte Carlo (Block Bootstrap) vs. Curva Histórica", xaxis_title='Operación #', yaxis_title='Capital')
+                
+                fig_env_bb.update_layout(title="Simulaciones Monte Carlo (Block Bootstrap) vs. Curva Histórica", xaxis_title='Fecha', yaxis_title='Capital', hovermode='x unified')
                 st.plotly_chart(fig_env_bb, use_container_width=True)
                 
-                # ... (Puedes añadir aquí los histogramas de la misma forma que en el MC simple, usando las variables `final_vals_bb` y `mdds_bb`)
+                # --- HISTOGRAMAS (AÑADIDOS) ---
+                # Histograma de Capital Final
+                st.subheader("📊 Histograma Capital Final (Block Bootstrap)")
+                hist1_bb = go.Figure()
+                hist1_bb.add_trace(go.Histogram(x=final_vals_bb, nbinsx=50, name="Frecuencia"))
+                hist1_bb.add_vline(x=stats_bb["Media"],   line_dash="dash", annotation_text="Media",   line_color="black")
+                hist1_bb.add_vline(x=stats_bb["Mediana"], line_dash="dash", annotation_text="Mediana", line_color="orange")
+                hist1_bb.add_vline(x=stats_bb["VaR 95%"], line_dash="dot",  annotation_text="VaR 95%", line_color="red")
+                hist1_bb.update_layout(xaxis_title="Capital Final", yaxis_title="Frecuencia", showlegend=False)
+                st.plotly_chart(hist1_bb, use_container_width=True)
+
+                # Histograma de Max Drawdown
+                st.subheader("📉 Histograma de Max Drawdown (%) (Block Bootstrap)")
+                hist2_bb = go.Figure()
+                hist2_bb.add_trace(go.Histogram(x=mdds_bb, nbinsx=50, name="Frecuencia"))
+                hist2_bb.add_vline(x=np.median(mdds_bb),      line_dash="dash", annotation_text="Mediana", line_color="orange")
+                hist2_bb.add_vline(x=np.percentile(mdds_bb, 95), line_dash="dot",  annotation_text="P95",     line_color="red")
+                hist2_bb.update_layout(xaxis_title="Max Drawdown (%)", yaxis_title="Frecuencia", showlegend=False)
+                st.plotly_chart(hist2_bb, use_container_width=True)
+
