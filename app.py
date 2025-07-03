@@ -350,12 +350,6 @@ with tabs[3]:
         sim_dates = rets.index
         fig_env = go.Figure()
         
-        # Original equity curve
-        fig_env.add_trace(go.Scatter(
-            x=equity.index, y=equity['Equity'], mode='lines',
-            name='Histórico', line=dict(color='blue', width=2)
-        ))
-
         # Percentile bands
         fig_env.add_trace(go.Scatter(
             x=sim_dates, y=np.percentile(sims_eq, 95, axis=1),
@@ -377,6 +371,13 @@ with tabs[3]:
             xaxis_title='Fecha', yaxis_title='Capital',
             hovermode='x unified', template='plotly_white'
         )
+        
+        # Original equity curve
+        fig_env.add_trace(go.Scatter(
+            x=equity.index, y=equity['Equity'], mode='lines',
+            name='Histórico', line=dict(color='blue', width=2)
+        ))
+        
         st.plotly_chart(fig_env, use_container_width=True)
 
         # Histograma de Capital Final
