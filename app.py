@@ -316,9 +316,15 @@ with tabs[3]:
         st.stop()
 
     if st.button("▶️ Ejecutar Monte Carlo"):
-        with st.spinner("Corriendo simulaciones..."):
-            sims_rel = run_monte_carlo(rets, n_sims, horizon)
-            sims_eq  = sims_rel * equity.iloc[0]
+    with st.spinner("Corriendo simulaciones..."):
+        # 1) Vector de retornos limpio
+        arr = np.asarray(rets, dtype=float)
+        # 2) Número inicial como float
+        initial_value = float(equity.iat[0])
+        # 3) Simulaciones
+        sims_rel = run_monte_carlo(arr, n_sims, horizon)  # numpy array
+        sims_eq  = sims_rel * initial_value               # numpy array
+
 
             # Estadísticas finales
             final_vals = sims_eq[-1, :]
