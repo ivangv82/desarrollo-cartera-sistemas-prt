@@ -19,16 +19,15 @@ st.markdown("Carga tu reporte de operaciones de ProRealTime y obtén métricas c
 @st.cache_data
 def load_prt_trades(file):
     try:
-        # Intenta leer con separador de tabulador, común en PRT español
+        file.seek(0)
         df = pd.read_csv(file, sep='\t', decimal=',')
-        if df.shape[1] < 2: # Si no funcionó, intenta con comas
+        if df.shape[1] < 2:
             file.seek(0)
             df = pd.read_csv(file, sep=',', decimal='.')
     except Exception as e:
-        st.error(f"No se pudo leer el archivo. Asegúrate de que es un CSV válido. Error: {e}")
+        st.error(f"No se pudo leer el archivo. Asegúrate de que es un CSV/TXT válido. Error: {e}")
         return pd.DataFrame()
 
-    # Mapeo de columnas flexible
     column_map = {
         'Fecha entrada': 'Entry Date', 'entry date': 'Entry Date',
         'Fecha salida': 'Exit Date', 'exit date': 'Exit Date',
@@ -43,7 +42,7 @@ def load_prt_trades(file):
     df = df.rename(columns=lambda c: column_map.get(c.strip(), c.strip()))
 
     if 'Entry Date' not in df.columns or 'Exit Date' not in df.columns or 'Profit' not in df.columns:
-        st.error("El archivo no contiene las columnas necesarias ('Fecha entrada', 'Fecha salida', 'Rdto Abs'). Por favor, verifica el formato de tu reporte de PRT.")
+        st.error("El archivo no contiene las columnas necesarias ('Fecha entrada', 'Fecha salida', 'Rdto Abs'). Por favor, verifica el formato.")
         st.stop()
         
     df['__raw_entry'] = df['Entry Date'].astype(str)
@@ -54,11 +53,11 @@ def load_prt_trades(file):
       'jul':'Jul','ago':'Aug','sep':'Sep','sept':'Sep','oct':'Oct','nov':'Nov','dic':'Dec'
     }
     def clean_and_parse(s_raw):
-        s = s_raw.lower()
+        s = str(s_raw).lower()
         for es, en in month_map.items():
             s = s.replace(es, en)
         try:
-            dt = pd.to_datetime(s, dayfirst=True, infer_datetime_format=True, errors='coerce')
+            dt = pd.to_datetime(s, dayfirst=True, errors='coerce')
             if pd.isna(dt):
                 dt = parser.parse(s, dayfirst=True, fuzzy=True)
             return dt
@@ -80,19 +79,20 @@ def load_prt_trades(file):
             df['Profit %'].astype(str)
               .str.replace('%','', regex=False)
               .str.replace(',','.', regex=False)
-              .astype(float, errors='ignore')
+              .astype(float, errors='coerce')
               .fillna(0.0) / 100
         )
     else:
         df['Profit %'] = 0.0
 
+    # --- BLOQUE CORREGIDO ---
     df['Profit'] = (
         df['Profit'].astype(str)
           .str.replace('[^0-9,.-]','', regex=True)
-          .str.replace(r'\.(?=.*\.)','', regex=True) # Quita separadores de miles
+          .str.replace(r'\.(?=.*\.)','', regex=True) 
           .str.replace(',','.', regex=False)
-          .astype(float, errors='ignore')
-          .fillna(0.0)
+          .astype(float, errors='coerce') # Usamos 'coerce' para forzar errores a NaN
+          .fillna(0.0) # Reemplazamos los NaN resultantes con 0
     )
     return df
 
@@ -122,20 +122,14 @@ def calculate_metrics(trades, equity_df, ppy, timeframe):
     mdd_pct = dd_rel.min() if not dd_rel.empty else 0
     mdd_abs = (equity - cummax).min() if not (equity - cummax).empty else 0
 
-    # --- ZONA CORREGIDA PARA EL RATIO DE SHARPE ---
-    # 1. Mapear el timeframe del selectbox a una frecuencia de pandas
     resample_freq = {
         "1mn": "T", "5mn": "5T", "15mn": "15T", "30mn": "30T",
         "1h": "H", "4h": "4H", "1d": "D", "1w": "W", "1mes": "MS"
     }[timeframe]
 
-    # 2. Remuestrear la equity a la frecuencia fija y rellenar huecos
     equity_resampled = equity.resample(resample_freq).ffill().dropna()
-
-    # 3. Calcular retornos sobre la serie de tiempo FIJA
     ret = equity_resampled.pct_change().dropna()
 
-    # 4. Calcular Sharpe con la serie de retornos correcta
     if len(ret) < 2:
         sharpe = 0.0
     else:
@@ -147,11 +141,11 @@ def calculate_metrics(trades, equity_df, ppy, timeframe):
     losses = trades[trades['Profit']<0]
     win_rate = len(wins)/n if n>0 else 0.0
 
-    if 'Nº barras' in trades.columns:
-        avg_dur = trades['Nº barras'].astype(float).mean()
+    if 'Nº barras' in trades.columns and pd.to_numeric(trades['Nº barras'], errors='coerce').notna().all():
+        avg_dur = pd.to_numeric(trades['Nº barras']).mean()
     else:
         avg_dur_days = (trades['Exit Date']-trades['Entry Date']).dt.total_seconds().mean() / (24*3600)
-        avg_dur = avg_dur_days * (ppy/252) # Aproximación
+        avg_dur = avg_dur_days * (ppy/252)
 
     avg_ret_trade = trades['Profit %'].mean() if 'Profit %' in trades.columns else 0.0
     gross_profit = wins['Profit'].sum()
@@ -188,9 +182,8 @@ trades_file = st.sidebar.file_uploader("Reporte PRT (CSV o TXT)", type=["csv","t
 initial_cap = st.sidebar.number_input("Capital Inicial", value=10000.0, min_value=0.0, step=100.0, format="%.2f")
 
 timeframe_options = ["1mn","5mn","15mn","30mn","1h","4h","1d","1w","1mes"]
-timeframe = st.sidebar.selectbox("Timeframe de Velas", timeframe_options, index=4) # Default a 1h
+timeframe = st.sidebar.selectbox("Timeframe de Velas", timeframe_options, index=4)
 
-# --- Cálculo de periodos por año (ppy) ---
 ppy = 0
 if timeframe in ["1mn","5mn","15mn","30mn","1h","4h"]:
     trading_hours_per_day = st.sidebar.number_input(
@@ -214,7 +207,6 @@ trades = load_prt_trades(trades_file)
 if trades.empty:
     st.stop()
 equity = compute_equity(trades, initial_cap)
-# Pasamos el 'timeframe' a la función de cálculo
 metrics = calculate_metrics(trades, equity, ppy, timeframe)
 
 # --- Pestañas ---
@@ -283,6 +275,6 @@ with tabs[2]:
     if 'Nº barras' in trades.columns: display_cols.append('Nº barras')
     
     st.dataframe(
-        trades[display_cols].reset_index(drop=True),
+        trades.loc[:, trades.columns.isin(display_cols)].reset_index(drop=True),
         use_container_width=True
     )
