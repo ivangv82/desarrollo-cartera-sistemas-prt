@@ -28,15 +28,24 @@ def load_prt_trades(file):
         'MFE':           'MFE',
         'MAE':           'MAE'
     })
-    # Parseo de fechas (día primero, mes abreviado en español)
-    df['Entry Date'] = pd.to_datetime(df['Entry Date'], format='%d %b %Y, %H:%M:%S', dayfirst=True)
-    df['Exit Date']  = pd.to_datetime(df['Exit Date'],  format='%d %b %Y, %H:%M:%S', dayfirst=True)
+
+    # Intentamos parsear con inferencia en lugar de formato fijo
+    df['Entry Date'] = pd.to_datetime(df['Entry Date'], dayfirst=True, errors='coerce')
+    df['Exit Date']  = pd.to_datetime(df['Exit Date'],  dayfirst=True, errors='coerce')
+
+    # Detectamos filas con fechas inválidas y las notificamos
+    invalid = df['Entry Date'].isna() | df['Exit Date'].isna()
+    if invalid.any():
+        st.warning(f"{invalid.sum()} fila(s) con fecha no reconocida y serán descartadas.")
+        df = df.loc[~invalid].copy()
+
     # Profit % → decimal
     df['Profit %'] = (
         df['Profit %']
           .str.replace('%','')
           .str.replace(',','.')
-          .astype(float) / 100
+          .astype(float, errors='ignore')
+          .fillna(0.0) / 100
     )
     # Profit absoluto → float
     df['Profit'] = (
@@ -44,9 +53,12 @@ def load_prt_trades(file):
           .str.replace('[^0-9,.-]', '', regex=True)
           .str.replace('.','', regex=False)   # miles
           .str.replace(',','.', regex=False)  # decimal
-          .astype(float)
+          .astype(float, errors='ignore')
+          .fillna(0.0)
     )
+
     return df
+
 
 def compute_equity_series(trades_df: pd.DataFrame, initial_cap: float) -> pd.DataFrame:
     """Construye la serie de equity a partir de los trades y capital inicial."""
