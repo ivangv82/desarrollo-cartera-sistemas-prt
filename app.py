@@ -206,11 +206,21 @@ metrics = calculate_metrics(trades, equity, ppy, timeframe)
 # Función de Monte Carlo bootstrap simple
 @st.cache_data
 def run_monte_carlo(returns, n_sims, horizon):
+    """Bootstrap de retornos con limpieza previa."""
+    # Convertir a float y eliminar NaNs/infinitos
+    arr = np.asarray(returns, dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0 or horizon <= 0:
+        # Devolvemos matriz de 1s (capital constante)
+        return np.ones((horizon, n_sims))
+    
     sims = np.zeros((horizon, n_sims))
     for i in range(n_sims):
-        sample = np.random.choice(returns, size=horizon, replace=True)
+        sample = np.random.choice(arr, size=horizon, replace=True)
+        # Trayectoria acumulada: (1 + r1)*(1 + r2)*... 
         sims[:, i] = np.cumprod(1 + sample)
     return sims
+
 
 # --- Pestañas ---
 tabs = st.tabs([
