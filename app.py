@@ -39,8 +39,9 @@ def load_prt_trades(file):
 
     # Mapear meses ES→EN para parseo fiable
     month_map = {
-      'ene':'Jan','feb':'Feb','mar':'Mar','abr':'Apr','may':'May','jun':'Jun',
-      'jul':'Jul','ago':'Aug','sep':'Sep','oct':'Oct','nov':'Nov','dic':'Dec'
+        'ene':'Jan','feb':'Feb','mar':'Mar','abr':'Apr','may':'May','jun':'Jun',
+        'jul':'Jul','ago':'Aug','sep':'Sep','sept':'Sep',  
+        'oct':'Oct','nov':'Nov','dic':'Dec'
     }
     for col in ['Entry Date','Exit Date']:
         s = df[col].astype(str).str.lower()
