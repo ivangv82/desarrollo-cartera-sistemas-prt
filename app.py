@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import io
+from dateutil import parser
+
 
 # --- Configuración de página ---
 st.set_page_config(
@@ -16,17 +18,15 @@ st.markdown("Carga tu reporte de operaciones de ProRealTime y obtén todas las m
 # --- Función de carga ---
 @st.cache_data
 def load_prt_trades(file):
-    """Carga y limpia el CSV de operaciones exportado por ProRealTime."""
-    # 1) Intento tab separado (export estándar PRT)
+    """Carga y limpia el CSV de operaciones exportado por ProRealTime, con fallback de parseo."""
+    # 1) Leer con tabulación; si sale 1 col, con coma
     df = pd.read_csv(file, sep='\t', decimal=',')
-    # 2) Si solo hay UNA columna, fue con coma => recargamos con sep=','
     if df.shape[1] == 1:
         df = pd.read_csv(file, sep=',', decimal=',')
-        # A veces la primera columna queda vacía, la eliminamos
         if "" in df.columns:
             df = df.drop(columns=[""])
-    
-    # Renombramos a nuestro estándar
+
+    # Renombrar
     df = df.rename(columns={
         'Fecha entrada': 'Entry Date',
         'Fecha salida':  'Exit Date',
@@ -37,32 +37,48 @@ def load_prt_trades(file):
         'MAE':           'MAE'
     })
 
-    # Mapear meses ES→EN para parseo fiable
-   # Mapear meses ES→EN
-    month_map = {
-        'ene':'Jan','feb':'Feb','mar':'Mar','abr':'Apr','may':'May','jun':'Jun',
-        'jul':'Jul','ago':'Aug','sep':'Sep','sept':'Sep',
-        'oct':'Oct','nov':'Nov','dic':'Dec'
-    }
-    
-    for col in ['Entry Date','Exit Date']:
-        s = df[col].astype(str).str.lower()
-        for es, en in month_map.items():
-            s = s.str.replace(es, en, regex=True)
-        # Inferimos el formato, acepta yy o yyyy, distintos separadores, comas, espacios…
-        df[col] = pd.to_datetime(
-            s,
-            dayfirst=True,
-            infer_datetime_format=True,
-            errors='coerce'
-        )
+    # Guardamos originales para fallback
+    df['__raw_entry'] = df['Entry Date'].astype(str)
+    df['__raw_exit']  = df['Exit Date'].astype(str)
 
-    # Eliminamos filas sin fecha válida
-    df = df.dropna(subset=['Entry Date','Exit Date'])
+    # Mapeo ES→EN meses
+    month_map = {
+      'ene':'Jan','feb':'Feb','mar':'Mar','abr':'Apr','may':'May','jun':'Jun',
+      'jul':'Jul','ago':'Aug','sep':'Sep','sept':'Sep',
+      'oct':'Oct','nov':'Nov','dic':'Dec'
+    }
+
+    def clean_and_parse(s_raw):
+        s = s_raw.lower()
+        for es, en in month_map.items():
+            s = s.replace(es, en)
+        # intentamos inferencia inicial
+        dt = pd.to_datetime(s, dayfirst=True, infer_datetime_format=True, errors='coerce')
+        if pd.isna(dt):
+            # fallback con dateutil
+            try:
+                dt = parser.parse(s, dayfirst=True, fuzzy=True)
+            except:
+                dt = pd.NaT
+        return dt
+
+    # Aplicamos a ambas columnas
+    df['Entry Date'] = df['__raw_entry'].map(clean_and_parse)
+    df['Exit Date']  = df['__raw_exit'].map(clean_and_parse)
+
+    # Aviso y descartamos solo si sigue sin parsear
+    mask_bad = df['Entry Date'].isna() | df['Exit Date'].isna()
+    if mask_bad.any():
+        st.warning(f"{mask_bad.sum()} fila(s) con fecha irreconocible tras fallback y serán descartadas.")
+        df = df.loc[~mask_bad].copy()
+
+    # Limpiamos raws
+    df = df.drop(columns=['__raw_entry','__raw_exit'])
 
     # Profit % → decimal
     df['Profit %'] = (
-        df['Profit %'].astype(str)
+        df.get('Profit %', 0)
+          .astype(str)
           .str.replace('%','', regex=False)
           .str.replace(',','.', regex=False)
           .astype(float, errors='ignore')
@@ -70,17 +86,16 @@ def load_prt_trades(file):
     )
     # Profit absoluto → float
     df['Profit'] = (
-        df['Profit'].astype(str)
+        df.get('Profit', 0)
+          .astype(str)
           .str.replace('[^0-9,.-]','', regex=True)
-          .str.replace('\.','', regex=True)   # quita miles
-          .str.replace(',','.', regex=False)  # pasa coma a punto
+          .str.replace('\.','', regex=True)
+          .str.replace(',','.', regex=False)
           .astype(float, errors='ignore')
           .fillna(0.0)
     )
 
     return df
-
-
 # --- Funciones métricas ---
 def compute_equity(trades, init_cap):
     df = trades.sort_values('Exit Date').copy()
