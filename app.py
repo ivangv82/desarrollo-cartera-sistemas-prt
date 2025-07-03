@@ -458,3 +458,54 @@ with tabs[4]:
                 hist2_bb.update_layout(xaxis_title="Max Drawdown (%)", yaxis_title="Frecuencia", showlegend=False)
                 st.plotly_chart(hist2_bb, use_container_width=True)
 
+    # --- Comparativa automática para varios tamaños de bloque ---
+    st.markdown("---")
+    st.subheader("🔍 Comparativa Block Size vs Métricas")
+
+    # Definimos los tamaños de bloque a comparar
+    block_sizes = [5, 10, 20]
+    comparativa = []
+
+    for bs in block_sizes:
+        sims_rel_bb = run_block_bootstrap_monte_carlo(
+            trade_returns.values, n_sims_bb, bs, horizon_bb
+        )
+        if sims_rel_bb is None:
+            continue
+
+        initial_value = float(equity.iloc[0, 0])
+        sims_eq_bb = sims_rel_bb * initial_value
+        final_vals_bb = sims_eq_bb[-1, :]
+
+        # Métricas
+        mean_v   = final_vals_bb.mean()
+        med_v    = np.median(final_vals_bb)
+        var95_v  = np.percentile(final_vals_bb, 5)
+        cvar95_v = final_vals_bb[final_vals_bb <= var95_v].mean()
+
+        # Drawdowns
+        mdds_bb = np.apply_along_axis(max_dd, 0, sims_eq_bb) * 100
+        med_dd   = np.median(mdds_bb)
+        p95_dd   = np.percentile(mdds_bb, 95)
+
+        comparativa.append({
+            "Block Size": bs,
+            "Media Final": mean_v,
+            "Mediana Final": med_v,
+            "VaR 95%": var95_v,
+            "CVaR 95%": cvar95_v,
+            "Mediana MDD %": med_dd,
+            "P95 MDD %": p95_dd
+        })
+
+    if comparativa:
+        df_comp = pd.DataFrame(comparativa)
+        # Formateamos para mostrar
+        df_comp_display = df_comp.copy()
+        df_comp_display[["Media Final","Mediana Final","VaR 95%","CVaR 95%"]] = \
+            df_comp_display[["Media Final","Mediana Final","VaR 95%","CVaR 95%"]].applymap(lambda x: f"${x:,.0f}")
+        df_comp_display[["Mediana MDD %","P95 MDD %"]] = \
+            df_comp_display[["Mediana MDD %","P95 MDD %"]].applymap(lambda x: f"{x:.2f}%")
+        st.dataframe(df_comp_display, use_container_width=True)
+    else:
+        st.warning("No se pudo generar la comparativa para los tamaños de bloque seleccionados.")
