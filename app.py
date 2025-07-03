@@ -308,23 +308,24 @@ with tabs[3]:
         value=1000, step=100
     )
 
-    # Ejecutar sólo si hay retornos
+    # Preparamos retornos y horizonte
     rets = equity.pct_change().dropna().values
     horizon = len(rets)
     if horizon < 1:
         st.warning("No hay retornos suficientes para ejecutar Monte Carlo.")
         st.stop()
 
+    # Botón para lanzar la simulación
     if st.button("▶️ Ejecutar Monte Carlo"):
-    with st.spinner("Corriendo simulaciones..."):
-        # 1) Vector de retornos limpio
-        arr = np.asarray(rets, dtype=float)
-        # 2) Número inicial como float
-        initial_value = float(equity.iat[0])
-        # 3) Simulaciones
-        sims_rel = run_monte_carlo(arr, n_sims, horizon)  # numpy array
-        sims_eq  = sims_rel * initial_value               # numpy array
-
+        with st.spinner("Corriendo simulaciones..."):
+            # Limpieza de retornos
+            arr = np.asarray(rets, dtype=float)
+            arr = arr[np.isfinite(arr)]
+            # Valor inicial puro
+            initial_value = float(equity.iat[0])
+            # Simulaciones
+            sims_rel = run_monte_carlo(arr, n_sims, horizon)
+            sims_eq  = sims_rel * initial_value
 
             # Estadísticas finales
             final_vals = sims_eq[-1, :]
@@ -335,47 +336,46 @@ with tabs[3]:
             var95    = np.percentile(final_vals, 5)
             cvar95   = final_vals[final_vals <= var95].mean()
 
-            # Cálculo de MDD por simulación
+            # MDD por simulación
             def max_dd(arr):
-                cummax = np.maximum.accumulate(arr)
-                dd = (arr - cummax) / cummax
-                return dd.min()
-            mdds = np.array([max_dd(sims_eq[:,i]) for i in range(n_sims)]) * 100  # en %
+                cm = np.maximum.accumulate(arr)
+                return ((arr - cm) / cm).min()
+            mdds = np.array([max_dd(sims_eq[:, i]) for i in range(n_sims)]) * 100
 
         # Mostrar estadísticas
         st.subheader("📈 Estadísticas del Capital Final")
         stats = {
-            "Media":         mean_f,
-            "Mediana":       med_f,
-            "P10":           p10_f,
-            "P90":           p90_f,
-            "VaR 95%":       var95,
-            "CVaR 95%":      cvar95
+            "Media":   mean_f,
+            "Mediana": med_f,
+            "P10":     p10_f,
+            "P90":     p90_f,
+            "VaR 95%": var95,
+            "CVaR 95%": cvar95
         }
-        cols = st.columns(6)
-        for i,(k,v) in enumerate(stats.items()):
-            val = f"${v:,.2f}"
-            cols[i].metric(k, val)
+        cols = st.columns(len(stats))
+        for idx, (label, value) in enumerate(stats.items()):
+            cols[idx].metric(label, f"${value:,.2f}")
 
-        # Envelope plot P10–P50–P90
+        # Envelope plot
         dates = equity.index
         p50 = np.percentile(sims_eq, 50, axis=1)
         fig_env = make_subplots(rows=1, cols=1)
         fig_env.add_trace(go.Scatter(
-            x=dates, y=np.percentile(sims_eq,90,axis=1),
-            fill=None, mode='lines', line_color='lightgrey', showlegend=False))
+            x=dates, y=np.percentile(sims_eq, 90, axis=1),
+            fill=None, mode='lines', line_color='lightgrey', showlegend=False
+        ))
         fig_env.add_trace(go.Scatter(
-            x=dates, y=np.percentile(sims_eq,10,axis=1),
-            fill='tonexty', mode='lines', line_color='lightgrey',
-            name='10%–90% Percentil'))
+            x=dates, y=np.percentile(sims_eq, 10, axis=1),
+            fill='tonexty', mode='lines', line_color='lightgrey', name='10%–90% Percentil'
+        ))
         fig_env.add_trace(go.Scatter(
-            x=dates, y=p50,
-            mode='lines', name='Mediana (P50)',
-            line=dict(color='orange', dash='dash')))
+            x=dates, y=p50, mode='lines',
+            name='Mediana (P50)', line=dict(color='orange', dash='dash')
+        ))
         fig_env.add_trace(go.Scatter(
-            x=dates, y=equity.values,
-            mode='lines', name='Histórico',
-            line=dict(color='blue', width=2)))
+            x=dates, y=equity.values, mode='lines',
+            name='Histórico', line=dict(color='blue', width=2)
+        ))
         fig_env.update_layout(
             title="Envelope Monte Carlo",
             xaxis_title='Fecha', yaxis_title='Capital',
@@ -388,19 +388,24 @@ with tabs[3]:
         st.subheader("📊 Histograma Capital Final")
         hist1 = go.Figure()
         hist1.add_trace(go.Histogram(x=final_vals, nbinsx=50))
-        hist1.add_vline(x=mean_f, line_dash="dash", annotation_text="Media", line_color="black")
-        hist1.add_vline(x=med_f,  line_dash="dash", annotation_text="Mediana", line_color="orange")
-        hist1.add_vline(x=var95,  line_dash="dot", annotation_text="VaR 95%", line_color="red")
-        hist1.update_layout(xaxis_title="Capital Final", yaxis_title="Frecuencia",
-                            template='plotly_white')
+        hist1.add_vline(x=mean_f,  line_dash="dash", annotation_text="Media",  line_color="black")
+        hist1.add_vline(x=med_f,   line_dash="dash", annotation_text="Mediana", line_color="orange")
+        hist1.add_vline(x=var95,   line_dash="dot",  annotation_text="VaR 95%", line_color="red")
+        hist1.update_layout(
+            xaxis_title="Capital Final", yaxis_title="Frecuencia",
+            template='plotly_white'
+        )
         st.plotly_chart(hist1, use_container_width=True)
 
         # Histograma de Max Drawdown
         st.subheader("📉 Histograma de Max Drawdown (%)")
         hist2 = go.Figure()
         hist2.add_trace(go.Histogram(x=mdds, nbinsx=50))
-        hist2.add_vline(x=np.median(mdds), line_dash="dash", annotation_text="Mediana", line_color="orange")
-        hist2.add_vline(x=np.percentile(mdds,95), line_dash="dot", annotation_text="P95", line_color="red")
-        hist2.update_layout(xaxis_title="Max Drawdown (%)", yaxis_title="Frecuencia",
-                            template='plotly_white')
+        hist2.add_vline(x=np.median(mdds),            line_dash="dash", annotation_text="Mediana", line_color="orange")
+        hist2.add_vline(x=np.percentile(mdds, 95),    line_dash="dot",  annotation_text="P95",     line_color="red")
+        hist2.update_layout(
+            xaxis_title="Max Drawdown (%)", yaxis_title="Frecuencia",
+            template='plotly_white'
+        )
         st.plotly_chart(hist2, use_container_width=True)
+
