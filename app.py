@@ -212,21 +212,73 @@ def max_dd(equity_path):
 # --- Pestañas ---
 tabs = st.tabs(["📊 Resumen", "📈 Equity & DD", "📝 Operaciones", "🎲 MC Simple", "🎲 MC Bloques"])
 
-with tabs[0]: # Resumen
+with tabs[0]:
     st.header("📋 Resumen de Métricas")
-    # ... (código de métricas sin cambios)
+    cols = st.columns(4)
+    metric_order = [
+        "Beneficio Total", "Crecimiento Capital", "CAGR", "Sharpe Ratio",
+        "Max Drawdown $", "Max Drawdown %", "Recovery Factor", "Calmar Ratio",
+        "Total Operaciones", "% Ganadoras", "Factor de Beneficio", "Ratio Payoff",
+        "Retorno Medio/Op. (%)", "Duración Media (velas)"
+    ]
+    
+    for i, key in enumerate(metric_order):
+        if key not in metrics: continue
+        val = metrics[key]
+        
+        if key in ["Beneficio Total", "Max Drawdown $"]:
+            disp = f"${val:,.2f}"
+        elif key in ["Crecimiento Capital", "CAGR", "Max Drawdown %", "% Ganadoras", "Retorno Medio/Op. (%)"]:
+            disp = f"{val*100:.2f}%"
+        elif np.isinf(val):
+            disp = "∞"
+        elif isinstance(val, (int, float)):
+            disp = f"{val:.2f}"
+        else:
+            disp = str(val)
+        
+        cols[i%4].metric(label=key, value=disp)
 
-with tabs[1]: # Equity & Drawdown
+with tabs[1]:
     st.header("📈 Curva de Equity y Drawdown")
-    # ... (código de gráficos de equity sin cambios)
+    dates = equity.index; eq = equity['Equity']
+    cummax = eq.cummax(); dd_pct = (eq-cummax)/cummax*100
 
-with tabs[2]: # Operaciones
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                        vertical_spacing=0.08, row_heights=[0.7,0.3],
+                        subplot_titles=("Curva de Equity","Drawdown (%)"))
+
+    fig.add_trace(go.Scatter(
+        x=dates, y=eq, mode='lines', name='Equity',
+        line=dict(width=2,color='royalblue'),
+        hovertemplate='%{x|%d %b %Y %H:%M}<br>Equity: %{y:$,.2f}<extra></extra>'
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=dates, y=dd_pct, mode='lines', name='Drawdown',
+        fill='tozeroy', line=dict(color='indianred'),
+        hovertemplate='%{x|%d %b %Y %H:%M}<br>Drawdown: %{y:.2f}%<extra></extra>'
+    ), row=2, col=1)
+
+    fig.update_layout(height=600, margin=dict(l=50,r=20,t=50,b=50),
+                      showlegend=False, hovermode='x unified')
+    fig.update_yaxes(title_text="Capital ($)", row=1, col=1)
+    fig.update_yaxes(title_text="Drawdown (%)", row=2, col=1)
+
+    st.plotly_chart(fig, use_container_width=True)
+
+with tabs[2]:
     st.header("📝 Detalle de Operaciones")
-    # ... (código de tabla de operaciones sin cambios)
-
-with tabs[3]: # Monte Carlo Simple
-    st.header("🎲 Simulación Monte Carlo (Bootstrap Simple)")
-    # ... (código de MC simple sin cambios)
+    display_cols = ['Entry Date','Exit Date','Side','Profit','Profit %']
+    if 'MFE' in trades.columns: display_cols.append('MFE')
+    if 'MAE' in trades.columns: display_cols.append('MAE')
+    if 'Nº barras' in trades.columns: display_cols.append('Nº barras')
+    
+    existing_cols = [col for col in display_cols if col in trades.columns]
+    st.dataframe(
+        trades[existing_cols].reset_index(drop=True),
+        use_container_width=True
+    )
 
 with tabs[4]: # Monte Carlo Block Bootstrap
     st.header("🎲 Simulación Monte Carlo (Block Bootstrap)")
