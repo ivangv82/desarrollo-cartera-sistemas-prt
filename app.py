@@ -126,7 +126,7 @@ def calculate_metrics(trades: pd.DataFrame, equity_df: pd.DataFrame) -> dict:
         "Factor de Beneficio":   pf,
         "Ratio Payoff":          payoff
     }
-}
+
 
 # --- Sidebar ---
 st.sidebar.header("📁 Carga de Datos")
