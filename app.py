@@ -210,7 +210,10 @@ def max_dd(equity_path):
     cm = np.maximum.accumulate(equity_path); return ((equity_path - cm) / cm).min()
 
 # --- Pestañas ---
-tabs = st.tabs(["📊 Resumen", "📈 Equity & DD", "📝 Operaciones", "🎲 MC Simple", "🎲 MC Bloques"])
+tabs = st.tabs([
+    "📊 Resumen", "📈 Equity & DD", "📝 Operaciones",
+    "🎲 MC Simple", "🎲 MC Bloques", "⚠️ Stress Test"
+])
 
 with tabs[0]:
     st.header("📋 Resumen de Métricas")
@@ -509,3 +512,97 @@ with tabs[4]:
         st.dataframe(df_comp_display, use_container_width=True)
     else:
         st.warning("No se pudo generar la comparativa para los tamaños de bloque seleccionados.")
+
+# --- TEST DE STRESS
+with tabs[5]: 
+    st.header("⚠️ Stress Test (Recuperación por Velas)")
+    st.markdown("Simula la recuperación tras un shock inicial, medido en número de velas.")
+
+    # Inputs
+    shock_pct = st.number_input(
+        "Choque inicial sobre el capital (%)",
+        min_value=-99.0, max_value=-1.0,
+        value=-20.0, step=1.0,
+        format="%.1f"
+    ) / 100.0
+
+    horizon_bars = st.number_input(
+        "Horizonte máximo de recuperación (velas)",
+        min_value=1, max_value=10000,
+        value=252, step=1
+    )
+
+    sims_stress = st.number_input(
+        "Número de simulaciones post-shock",
+        min_value=100, max_value=10000,
+        value=500, step=100
+    )
+
+    if st.button("▶️ Ejecutar Stress Test"):
+        with st.spinner("Corriendo stress tests..."):
+            # 1) Shock en el capital
+            init = float(equity['Equity'].iat[0])
+            shocked = init * (1 + shock_pct)
+
+            # 2) Retornos históricos por vela
+            ret_arr = trade_returns.values
+            ret_arr = ret_arr[np.isfinite(ret_arr)]
+
+            # 3) Simulaciones post-shock
+            sims = np.zeros((horizon_bars, sims_stress))
+            for i in range(sims_stress):
+                # muestreamos retornos con reemplazo
+                seq = np.random.choice(ret_arr, size=horizon_bars, replace=True)
+                sims[i] = shocked * np.cumprod(1 + seq)
+
+            # 4) Tiempo hasta recuperación: la primera vela donde equity >= init
+            ttrs = []
+            for path in sims:
+                rec_indices = np.where(path >= init)[0]
+                ttrs.append(rec_indices[0] if rec_indices.size>0 else np.nan)
+            ttrs = np.array(ttrs)
+
+            # 5) Métricas
+            pct_recov = 100 * np.count_nonzero(~np.isnan(ttrs)) / sims_stress
+            med_ttr   = np.nanmedian(ttrs)
+            p90_ttr   = np.nanpercentile(ttrs[~np.isnan(ttrs)], 90) if np.count_nonzero(~np.isnan(ttrs))>0 else np.nan
+
+        # Resultados
+        st.subheader("📊 Estadísticas de Recuperación")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("% Recuperadas", f"{pct_recov:.1f}%")
+        c2.metric("Mediana Velas TTR", f"{med_ttr:.0f}")
+        c3.metric("P90 Velas TTR", f"{p90_ttr:.0f}")
+
+        # Histograma de TTR
+        st.subheader("📈 Histograma de Velas hasta Recuperación")
+        fig_ttr = go.Figure()
+        fig_ttr.add_trace(go.Histogram(
+            x=ttrs[~np.isnan(ttrs)],
+            nbinsx=50
+        ))
+        fig_ttr.update_layout(
+            xaxis_title="Velas hasta recuperar capital inicial",
+            yaxis_title="Frecuencia",
+            template="plotly_white"
+        )
+        st.plotly_chart(fig_ttr, use_container_width=True)
+
+        # Curva de supervivencia
+        st.subheader("📉 Curva de Supervivencia por Velas")
+        surv = [(path >= init).cumprod().sum() / sims_stress * 100 for path in sims.T]
+        # mejor: calculamos % vivo en cada vela
+        alive = np.array([(sims[:,j] >= init) for j in range(sims_stress)]).T
+        pct_alive = alive.sum(axis=1) / sims_stress * 100
+        fig_surv = go.Figure(go.Scatter(
+            x=list(range(1, horizon_bars+1)),
+            y=pct_alive,
+            mode="lines"
+        ))
+        fig_surv.update_layout(
+            xaxis_title="Velas tras shock",
+            yaxis_title="% Simulaciones con capital ≥ inicial",
+            yaxis_range=[0,100],
+            template="plotly_white"
+        )
+        st.plotly_chart(fig_surv, use_container_width=True)
