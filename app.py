@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 st.title("🚀 Análisis Completo de Backtest PRT")
-st.markdown("Carga tu reporte de operaciones de ProRealTime y obtén todas las métricas clásicas más la curva de equity.")
+st.markdown("Carga tu reporte de operaciones de ProRealTime y obtén métricas clásicas, curvas y ratios de riesgo adaptados al timeframe.")
 
 # --- Función de carga con fallback de fechas ---
 @st.cache_data
@@ -78,7 +78,7 @@ def load_prt_trades(file):
     )
     return df
 
-# --- Métricas y equity ---
+# --- Equity y métricas ---
 def compute_equity(trades, init_cap):
     df = trades.sort_values('Exit Date').copy()
     df['Equity'] = init_cap + df['Profit'].cumsum()
@@ -88,7 +88,7 @@ def compute_equity(trades, init_cap):
     }).set_index('Date')
     return equity
 
-def calculate_metrics(trades, equity_df, periods_per_year):
+def calculate_metrics(trades, equity_df, ppy):
     equity = equity_df['Equity']
     ini, fin = equity.iloc[0], equity.iloc[-1]
     total_profit = fin - ini
@@ -101,18 +101,26 @@ def calculate_metrics(trades, equity_df, periods_per_year):
     mdd_pct = dd_rel.min()
     mdd_abs = (equity - cummax).min()
 
-    daily_ret = equity.pct_change().dropna()
-    std_dev = daily_ret.std()
-    sharpe = (daily_ret.mean()/std_dev * np.sqrt(periods_per_year)) if std_dev>0 else 0.0
+    ret = equity.pct_change().dropna()
+    std_dev = ret.std()
+    sharpe = (ret.mean()/std_dev * np.sqrt(ppy)) if std_dev>0 else 0.0
 
     n = len(trades)
-    wins, losses = trades[trades['Profit']>0], trades[trades['Profit']<0]
+    wins = trades[trades['Profit']>0]
+    losses = trades[trades['Profit']<0]
     win_rate = len(wins)/n if n>0 else 0.0
-    avg_dur = (trades['Exit Date']-trades['Entry Date']).dt.days.mean() if n>0 else 0.0
-    avg_ret_trade = trades['Profit %'].mean()
 
-    gross_profit, gross_loss = wins['Profit'].sum(), abs(losses['Profit'].sum())
+    # Duración media en velas si existe, si no fallback a días*velas_por_dia
+    if 'Nº barras' in trades.columns:
+        avg_dur = trades['Nº barras'].astype(float).mean()
+    else:
+        avg_dur = (trades['Exit Date']-trades['Entry Date']).dt.days.mean() * (ppy/252)
+
+    avg_ret_trade = trades['Profit %'].mean()
+    gross_profit = wins['Profit'].sum()
+    gross_loss = abs(losses['Profit'].sum())
     pf = gross_profit/gross_loss if gross_loss>0 else np.nan
+
     avg_win = wins['Profit %'].mean() if not wins.empty else 0.0
     avg_loss = abs(losses['Profit %'].mean()) if not losses.empty else 0.0
     payoff = avg_win/avg_loss if avg_loss>0 else np.nan
@@ -130,35 +138,45 @@ def calculate_metrics(trades, equity_df, periods_per_year):
         "Recovery Factor":       rec_factor,
         "Calmar Ratio":          calmar,
         "Total Operaciones":     n,
+        "Duración Media (velas)":avg_dur,
         "% Ganadoras":           win_rate,
-        "Duración Media (días)": avg_dur,
         "Retorno Medio/Op. (%)": avg_ret_trade,
         "Factor de Beneficio":   pf,
         "Ratio Payoff":          payoff
     }
 
-# --- Sidebar: carga y timeframe ---
+# --- Sidebar: carga, timeframe y barras/día ---
 st.sidebar.header("📁 Carga de Datos")
-trades_file   = st.sidebar.file_uploader("Reporte PRT (CSV)", type=["csv","txt"])
-initial_cap   = st.sidebar.number_input("Capital Inicial", value=10000.0, min_value=0.0, step=100.0, format="%.2f")
-timeframe     = st.sidebar.selectbox("Timeframe de Velas", ["1mn","5mn","15mn","30mn","1h","4h","1d","1w","1mes"])
+trades_file = st.sidebar.file_uploader("Reporte PRT (CSV)", type=["csv","txt"])
+initial_cap = st.sidebar.number_input("Capital Inicial", value=10000.0, min_value=0.0, step=100.0, format="%.2f")
+
+timeframe = st.sidebar.selectbox(
+    "Timeframe de Velas",
+    ["1mn","5mn","15mn","30mn","1h","4h","1d","1w","1mes"]
+)
+
+if timeframe in ["1mn","5mn","15mn","30mn","1h","4h"]:
+    default_bpd = {
+        "1mn":   60*6.5,
+        "5mn":   6.5*12,
+        "15mn":  6.5*4,
+        "30mn":  6.5*2,
+        "1h":    6.5,
+        "4h":    6.5/4
+    }[timeframe]
+    barras_por_dia = st.sidebar.number_input(
+        "Velas por día de trading",
+        min_value=1.0,
+        value=float(default_bpd),
+        help="Ej: Forex=24 velas de 1h; Bolsa usa 6.5 velas de 1h"
+    )
+    ppy = barras_por_dia * 252
+else:
+    ppy = {"1d":252,"1w":52,"1mes":12}[timeframe]
+
 if not trades_file:
     st.sidebar.warning("Sube el CSV de operaciones primero.")
     st.stop()
-
-# mapping timeframe → periodos por año
-ppy_map = {
-    "1mn": 252*6.5*60,   # 6.5h trading dia
-    "5mn": 252*6.5*12,
-    "15mn":252*6.5*4,
-    "30mn":252*6.5*2,
-    "1h":  252*6.5,
-    "4h":  252*1.625,
-    "1d":  252,
-    "1w":  52,
-    "1mes":12
-}
-ppy = ppy_map.get(timeframe, 252)
 
 # --- Procesamiento ---
 trades = load_prt_trades(trades_file)
@@ -171,13 +189,13 @@ tabs = st.tabs(["📊 Resumen Métricas","📈 Equity & Drawdown","📝 Operacio
 with tabs[0]:
     st.header("📋 Resumen de Métricas")
     cols = st.columns(4)
-    keys = list(metrics.keys())
     money_keys   = {"Beneficio Total","Max Drawdown $"}
     percent_keys = {"Crecimiento Capital","CAGR","Max Drawdown %","% Ganadoras","Retorno Medio/Op. (%)"}
     ratio_keys   = {"Sharpe Ratio","Factor de Beneficio","Ratio Payoff","Recovery Factor","Calmar Ratio"}
     int_keys     = {"Total Operaciones"}
-    float_keys   = {"Duración Media (días)"}
-    for i, key in enumerate(keys):
+    float_keys   = {"Duración Media (velas)"}
+
+    for i, key in enumerate(metrics):
         val = metrics[key]
         if key in money_keys:
             disp = f"${val:,.2f}"
@@ -197,25 +215,36 @@ with tabs[1]:
     st.header("📈 Curva de Equity y Drawdown")
     dates = equity.index; eq = equity['Equity']
     cummax = eq.cummax(); dd_pct = (eq-cummax)/cummax*100
+
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.08, row_heights=[0.7,0.3],
                         subplot_titles=("Curva de Equity","Drawdown (%)"))
-    fig.add_trace(go.Scatter(x=dates,y=eq,mode='lines',name='Equity',
+
+    fig.add_trace(go.Scatter(
+        x=dates, y=eq, mode='lines', name='Equity',
         line=dict(width=2,color='royalblue'),
-        hovertemplate='%{x|%d %b %Y}<br>Equity: %{y:$,.2f}<extra></extra>'),
-        row=1, col=1)
-    fig.add_trace(go.Scatter(x=dates,y=dd_pct,mode='lines',name='Drawdown',
-        fill='tozeroy',line=dict(color='indianred'),
-        hovertemplate='%{x|%d %b %Y}<br>Drawdown: %{y:.2f}%<extra></extra>'),
-        row=2, col=1)
+        hovertemplate='%{x|%d %b %Y}<br>Equity: %{y:$,.2f}<extra></extra>'
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=dates, y=dd_pct, mode='lines', name='Drawdown',
+        fill='tozeroy', line=dict(color='indianred'),
+        hovertemplate='%{x|%d %b %Y}<br>Drawdown: %{y:.2f}%<extra></extra>'
+    ), row=2, col=1)
+
     fig.update_layout(height=600, margin=dict(l=50,r=20,t=50,b=50),
                       showlegend=False, hovermode='x unified')
     fig.update_xaxes(tickformat="%d %b %Y", tickangle=45, nticks=10, row=2, col=1)
     fig.update_yaxes(title_text="Equity",   row=1, col=1)
     fig.update_yaxes(title_text="Drawdown %", row=2, col=1)
+
     st.plotly_chart(fig, use_container_width=True)
 
 with tabs[2]:
     st.header("📝 Detalle de Operaciones")
-    st.dataframe(trades[['Entry Date','Exit Date','Side','Profit','Profit %','MFE','MAE']]
-                 .reset_index(drop=True), use_container_width=True)
+    st.dataframe(
+        trades[
+            ['Entry Date','Exit Date','Side','Profit','Profit %','MFE','MAE','Nº barras']
+        ].reset_index(drop=True),
+        use_container_width=True
+    )
