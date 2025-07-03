@@ -108,7 +108,11 @@ def calculate_metrics(trades, equity_df, periods_per_year):
     n = len(trades)
     wins, losses = trades[trades['Profit']>0], trades[trades['Profit']<0]
     win_rate = len(wins)/n if n>0 else 0.0
-    avg_dur = (trades['Exit Date']-trades['Entry Date']).dt.days.mean() if n>0 else 0.0
+    
+    if 'Nº barras' in trades.columns:
+        avg_dur = trades['Nº barras'].astype(float).mean()
+    else:
+    avg_dur = (trades['Exit Date'] - trades['Entry Date']).dt.days.mean() * (252 if timeframe=='1d' else 1)
     avg_ret_trade = trades['Profit %'].mean()
 
     gross_profit, gross_loss = wins['Profit'].sum(), abs(losses['Profit'].sum())
