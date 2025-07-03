@@ -186,19 +186,34 @@ tabs = st.tabs(["📊 Resumen Métricas","📈 Equity & Drawdown","📝 Operacio
 
 with tabs[0]:
     st.header("📋 Resumen de Métricas")
-    # Mostrar en cuatro columnas
     cols = st.columns(4)
     keys = list(metrics.keys())
+
+    # Define a qué categoría pertenece cada métrica
+    money_keys   = {"Beneficio Total", "Max Drawdown $"}
+    percent_keys = {"Crecimiento Capital", "CAGR", "Max Drawdown %", "% Ganadoras", "Retorno Medio/Op. (%)"}
+    ratio_keys   = {"Sharpe Ratio", "Factor de Beneficio", "Ratio Payoff"}
+    integer_keys = {"Total Operaciones"}
+    float_keys   = {"Duración Media (días)"}
+
     for i, key in enumerate(keys):
         val = metrics[key]
-        # formateo
-        if "Ratio" in key or "Sharpe" in key or "Payoff" in key or "CAGR" in key or "Retorno" in key or "Crecimiento" in key:
-            disp = f"{val*100:.2f}%" if "Max Drawdown" not in key else f"{val*100:.2f}%"
-        elif "Total Operaciones" in key:
-            disp = f"{int(val)}"
-        else:
+        # Formateo según categoría
+        if key in money_keys:
             disp = f"${val:,.2f}"
-        cols[i%4].metric(label=key, value=disp)
+        elif key in percent_keys:
+            disp = f"{val*100:.2f}%"
+        elif key in ratio_keys:
+            disp = f"{val:.2f}"
+        elif key in integer_keys:
+            disp = f"{int(val)}"
+        elif key in float_keys:
+            disp = f"{val:.1f}"
+        else:
+            disp = str(val)
+
+        cols[i % 4].metric(label=key, value=disp)
+
 
 with tabs[1]:
     st.header("📈 Curva de Equity y Drawdown")
