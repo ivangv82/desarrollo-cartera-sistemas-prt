@@ -135,7 +135,7 @@ def calculate_metrics(trades, equity_df, periods_per_year):
         "Calmar Ratio":          calmar,
         "Total Operaciones":     n,
         "% Ganadoras":           win_rate,
-        "Duración Media (días)": avg_dur,
+        "Duración Media (velas)": avg_dur,
         "Retorno Medio/Op. (%)": avg_ret_trade,
         "Factor de Beneficio":   pf,
         "Ratio Payoff":          payoff
@@ -180,7 +180,7 @@ with tabs[0]:
     percent_keys = {"Crecimiento Capital","CAGR","Max Drawdown %","% Ganadoras","Retorno Medio/Op. (%)"}
     ratio_keys   = {"Sharpe Ratio","Factor de Beneficio","Ratio Payoff","Recovery Factor","Calmar Ratio"}
     int_keys     = {"Total Operaciones"}
-    float_keys   = {"Duración Media (días)"}
+    float_keys   = {"Duración Media (velas)"}
     for i, key in enumerate(keys):
         val = metrics[key]
         if key in money_keys:
