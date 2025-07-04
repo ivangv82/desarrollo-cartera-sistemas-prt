@@ -11,6 +11,8 @@ st.set_page_config(page_title="📊 Analizador de Backtests", layout="wide")
 st.title("🚀 Analizador de Estrategias PRT")
 
 # --- Funciones de Lógica ---
+
+# --- carga datos ---
 @st.cache_data
 def load_prt_trades(file):
     if file is None: return None
@@ -53,6 +55,7 @@ def load_prt_trades(file):
     df['Profit'] = pd.to_numeric(profit_str, errors='coerce').fillna(0.0)
     return df
 
+# --- curva de capital ---
 def compute_equity(trades, init_cap):
     if trades is None or trades.empty: return None, None
     df = trades.sort_values('Exit Date').copy().reset_index(drop=True)
@@ -62,6 +65,7 @@ def compute_equity(trades, init_cap):
     equity_curve = pd.DataFrame({'Date': pd.to_datetime([trades['Entry Date'].min()] + df['Exit Date'].tolist()), 'Equity': [init_cap] + df['Equity'].tolist()}).set_index('Date')
     return equity_curve, df['Return']
 
+# --- metricas sistemas ---
 def calculate_metrics(trades, equity_df, ppy, timeframe):
     if equity_df is None or equity_df.empty or len(equity_df) < 2: return {}
     equity = equity_df['Equity']
@@ -93,6 +97,7 @@ def calculate_metrics(trades, equity_df, ppy, timeframe):
     calmar = cagr/abs(mdd_pct) if mdd_pct!=0 else np.inf
     return {"Beneficio Total":total_profit, "Crecimiento Capital":growth, "CAGR":cagr, "Sharpe Ratio":sharpe, "Max Drawdown %":mdd_pct, "Max Drawdown $":mdd_abs, "Recovery Factor":rec_factor, "Calmar Ratio":calmar, "Total Operaciones":n, "Duración Media (velas)":avg_dur, "% Ganadoras":win_rate, "Retorno Medio/Op. (%)":avg_ret_trade, "Factor de Beneficio":pf, "Ratio Payoff":payoff}
 
+# --- montecarlo ---
 @st.cache_data
 def run_monte_carlo(returns, n_sims, horizon):
     arr = np.asarray(returns, dtype=float); arr = arr[np.isfinite(arr)]
@@ -103,6 +108,7 @@ def run_monte_carlo(returns, n_sims, horizon):
         sims[:, i] = np.cumprod(1 + sample)
     return sims
 
+# --- montecarlo bloques---
 @st.cache_data
 def run_block_bootstrap_monte_carlo(returns, n_sims, block_size, horizon):
     arr = np.asarray(returns, dtype=float); arr = arr[np.isfinite(arr)]
@@ -118,6 +124,7 @@ def run_block_bootstrap_monte_carlo(returns, n_sims, block_size, horizon):
         sims[:, i] = np.cumprod(1 + sim_returns)
     return sims
 
+# --- mdd ---
 def max_dd(equity_path):
     cm = np.maximum.accumulate(equity_path)
     dd = (equity_path - cm) / cm
@@ -142,6 +149,7 @@ if st.session_state.compare_mode:
 else:
     st.sidebar.button("➕ Comparar con otra Estrategia", on_click=activate_compare_mode, use_container_width=True)
 
+# --- PARAMETROS GLOBALES ---
 st.sidebar.header("⚙️ Parámetros Globales")
 timeframe = st.sidebar.selectbox("Timeframe de Velas", ["1mn","5mn","15mn","30mn","1h","4h","1d","1w","1mes"], index=6)
 if timeframe in ["1mn","5mn","15mn","30mn","1h","4h"]:
@@ -160,7 +168,9 @@ trades_a = load_prt_trades(trades_file_a)
 equity_a, returns_a = compute_equity(trades_a, initial_cap_a)
 metrics_a = calculate_metrics(trades_a, equity_a, ppy, timeframe)
 
+############################################################################################
 # --- MODO COMPARATIVO ---
+############################################################################################
 if st.session_state.compare_mode and trades_file_b:
     st.markdown(f"### Comparativa: `{trades_file_a.name}` vs `{trades_file_b.name}`")
     trades_b = load_prt_trades(trades_file_b)
@@ -322,8 +332,9 @@ if st.session_state.compare_mode and trades_file_b:
                             fig_ttr.add_trace(go.Histogram(x=ttrs[~np.isnan(ttrs)], nbinsx=50))
                         fig_ttr.update_layout(title="Histograma de Operaciones hasta Recuperación", xaxis_title="Operaciones", yaxis_title="Frecuencia")
                         st.plotly_chart(fig_ttr, use_container_width=True)
-
+############################################################################################
 # --- MODO ANÁLISIS INDIVIDUAL ---
+############################################################################################
 else:
     st.markdown(f"### Análisis Individual: `{trades_file_a.name}`")
     tabs = st.tabs(["📊 Resumen", "📈 Equity & DD", "📝 Operaciones", "🎲 MC Simple", "🎲 MC Bloques", "⚠️ Stress Test"])
