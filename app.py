@@ -167,7 +167,7 @@ for i, file in enumerate(uploaded_files):
 st.header("Resultados del Análisis")
 tabs = st.tabs(["📊 Resumen", "📈 Curvas", "📝 Operaciones", "🎲 Análisis Avanzado"])
 
-    with tabs[0]:
+   with tabs[0]:
         st.subheader("Resumen Comparativo de Métricas")
         metric_series_list = [pd.Series(s["metrics"], name=s["name"]) for s in strategies_data if s["metrics"]]
         if metric_series_list:
