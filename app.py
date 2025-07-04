@@ -131,17 +131,21 @@ def activate_compare_mode():
     st.session_state.compare_mode = True
 
 # --- SIDEBAR DINÁMICO ---
-st.sidebar.header("📁 Carga de Datos")
-trades_file_a = st.sidebar.file_uploader("Reporte de Estrategia", type=["csv","txt"], key="file_a")
-initial_cap_a = st.sidebar.number_input("Capital Inicial", value=10000.0, min_value=0.0, step=1000.0, format="%.2f", key="cap_a")
+st.sidebar.header("📁 Carga de Estrategias")
+num_strategies = st.sidebar.number_input("Número de estrategias a comparar", min_value=1, max_value=10, value=2, step=1)
 
-trades_file_b = None
-if st.session_state.compare_mode:
-    trades_file_b = st.sidebar.file_uploader("Reporte de Estrategia B", type=["csv","txt"], key="file_b")
-    initial_cap_b = st.sidebar.number_input("Capital Inicial B", value=10000.0, min_value=0.0, step=1000.0, format="%.2f", key="cap_b")
-else:
-    st.sidebar.button("➕ Comparar con otra Estrategia", on_click=activate_compare_mode, use_container_width=True)
+uploaded_files = []
+initial_caps = []
+for i in range(num_strategies):
+    # Usamos un expander para mantener la sidebar limpia
+    with st.sidebar.expander(f"Estrategia {i+1}", expanded=i<2):
+        file = st.file_uploader(f"Reporte {i+1}", type=["csv", "txt"], key=f"file_{i}")
+        cap = st.number_input(f"Capital Inicial {i+1}", value=10000.0, min_value=0.0, step=1000.0, format="%.2f", key=f"cap_{i}")
+        if file:
+            uploaded_files.append(file)
+            initial_caps.append(cap)
 
+# --- PARAMETROS GLOBALES --- #
 st.sidebar.header("⚙️ Parámetros Globales")
 timeframe = st.sidebar.selectbox("Timeframe de Velas", ["1mn","5mn","15mn","30mn","1h","4h","1d","1w","1mes"], index=6)
 if timeframe in ["1mn","5mn","15mn","30mn","1h","4h"]:
@@ -152,67 +156,72 @@ else: ppy = {"1d":252, "1w":52, "1mes":12}[timeframe]
 st.sidebar.caption(f"Periodos por año calculados: {int(ppy)}")
 
 # --- LÓGICA DE PROCESAMIENTO Y RENDERIZADO ---
-if not trades_file_a:
-    st.info("Por favor, carga un archivo de estrategia para comenzar.")
+if not uploaded_files:
+    st.info("Por favor, carga al menos un archivo de estrategia para comenzar.")
     st.stop()
 
-trades_a = load_prt_trades(trades_file_a)
-equity_a, returns_a = compute_equity(trades_a, initial_cap_a)
-metrics_a = calculate_metrics(trades_a, equity_a, ppy, timeframe)
+strategies_data = []
+for i, file in enumerate(uploaded_files):
+    trades = load_prt_trades(file)
+    equity, returns = compute_equity(trades, initial_caps[i])
+    metrics = calculate_metrics(trades, equity, ppy, timeframe)
+    strategies_data.append({
+        "name": file.name,
+        "trades": trades,
+        "equity": equity,
+        "returns": returns,
+        "metrics": metrics
+    })
 
 # --- MODO COMPARATIVO ---
-if st.session_state.compare_mode and trades_file_b:
-    st.markdown(f"### Comparativa: `{trades_file_a.name}` vs `{trades_file_b.name}`")
-    trades_b = load_prt_trades(trades_file_b)
-    equity_b, returns_b = compute_equity(trades_b, initial_cap_b)
-    metrics_b = calculate_metrics(trades_b, equity_b, ppy, timeframe)
-    
-    tabs = st.tabs(["📊 Resumen", "📈 Curvas", "📝 Operaciones", "🎲 Análisis Avanzado"])
-    
+st.header("Resultados del Análisis")
+tabs = st.tabs(["📊 Resumen", "📈 Curvas", "📝 Operaciones", "🎲 Análisis Avanzado"])
+
     with tabs[0]:
-        st.header("Resumen Comparativo de Métricas")
-        if metrics_a and metrics_b:
-            df_a = pd.Series(metrics_a, name="Estrategia A"); df_b = pd.Series(metrics_b, name="Estrategia B")
-            df_comp = pd.concat([df_a, df_b], axis=1)
+        st.subheader("Resumen Comparativo de Métricas")
+        metric_series_list = [pd.Series(s["metrics"], name=s["name"]) for s in strategies_data if s["metrics"]]
+        if metric_series_list:
+            df_comp = pd.concat(metric_series_list, axis=1)
             def format_value(val, key):
-                if pd.isna(val): return "-"
-                if key in ["Beneficio Total", "Max Drawdown $"]: return f"${val:,.2f}"
-                if key in ["Crecimiento Capital", "CAGR", "Max Drawdown %", "% Ganadoras", "Retorno Medio/Op. (%)"]: return f"{val:.2%}"
-                if key in ["Total Operaciones"]: return f"{int(val)}"
-                return f"{val:.2f}"
+                    if pd.isna(val): return "-"
+                    if key in ["Beneficio Total", "Max Drawdown $"]: return f"${val:,.2f}"
+                    if key in ["Crecimiento Capital", "CAGR", "Max Drawdown %", "% Ganadoras", "Retorno Medio/Op. (%)"]: return f"{val:.2%}"
+                    if key in ["Total Operaciones"]: return f"{int(val)}"
+                    return f"{val:.2f}"
             df_display = df_comp.copy()
             for col in df_display.columns: df_display[col] = [format_value(val, idx) for idx, val in df_comp[col].items()]
             st.dataframe(df_display, use_container_width=True)
-        else: st.warning("No se pudieron calcular las métricas para una o ambas estrategias.")
-    # Draw down
-    with tabs[1]:
-        st.header("Curvas de Capital y Drawdowns")
-        if equity_a is not None and equity_b is not None:
-            st.subheader("Curvas de Capital (Normalizadas)")
-            norm_equity_a = (equity_a['Equity'] / equity_a['Equity'].iloc[0]) * 100
-            norm_equity_b = (equity_b['Equity'] / equity_b['Equity'].iloc[0]) * 100
-            fig_eq = go.Figure()
-            fig_eq.add_trace(go.Scatter(x=norm_equity_a.index, y=norm_equity_a, mode='lines', name='Estrategia A', line=dict(color='royalblue')))
-            fig_eq.add_trace(go.Scatter(x=norm_equity_b.index, y=norm_equity_b, mode='lines', name='Estrategia B', line=dict(color='darkorange')))
-            fig_eq.update_layout(yaxis_title="Capital Normalizado (Base 100)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig_eq, use_container_width=True)
-            st.markdown("---")
-            
-            # --- GRÁFICO DE DRAWDOWN COMBINADO POR FECHA (CORREGIDO) ---
-            st.subheader("Curvas de Drawdown por Fecha")
-            dd_pct_a = (equity_a['Equity'] - equity_a['Equity'].cummax()) / equity_a['Equity'].cummax() * 100
-            dd_pct_b = (equity_b['Equity'] - equity_b['Equity'].cummax()) / equity_b['Equity'].cummax() * 100
-            fig_dd = go.Figure()
-            fig_dd.add_trace(go.Scatter(x=dd_pct_a.index, y=dd_pct_a.values, mode='lines', name='Drawdown A', line=dict(color='indianred'), fill='tozeroy', opacity=0.7))
-            fig_dd.add_trace(go.Scatter(x=dd_pct_b.index, y=dd_pct_b.values, mode='lines', name='Drawdown B', line=dict(color='orange'), fill='tozeroy', opacity=0.7))
-            fig_dd.update_layout(yaxis_title="Drawdown (%)", xaxis_title="Fecha", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig_dd, use_container_width=True)    
+        else:
+            st.warning("No se pudieron calcular métricas para ninguna estrategia.")
     
-
+    with tabs[1]:
+        st.subheader("Curvas de Capital (Normalizadas)")
+        fig_eq = go.Figure()
+        colors = ['royalblue', 'darkorange', 'green', 'indianred', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+        for i, s_data in enumerate(strategies_data):
+            if s_data["equity"] is not None:
+                norm_equity = (s_data["equity"]['Equity'] / s_data["equity"]['Equity'].iloc[0]) * 100
+                fig_eq.add_trace(go.Scatter(x=norm_equity.index, y=norm_equity, mode='lines', name=s_data["name"], line=dict(color=colors[i % len(colors)])))
+        fig_eq.update_layout(title="Comparativa de Curvas de Capital", yaxis_title="Capital Normalizado (Base 100)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        st.plotly_chart(fig_eq, use_container_width=True)
+    
+        st.markdown("---")
+        st.subheader("Curvas de Drawdown por Fecha")
+        fig_dd = go.Figure()
+        for i, s_data in enumerate(strategies_data):
+            if s_data["equity"] is not None:
+                equity_curve = s_data["equity"]['Equity']
+                dd_pct = (equity_curve - equity_curve.cummax()) / equity_curve.cummax() * 100
+                fig_dd.add_trace(go.Scatter(x=dd_pct.index, y=dd_pct.values, mode='lines', name=s_data["name"], line=dict(color=colors[i % len(colors)])))
+        fig_dd.update_layout(title="Comparativa de Curvas de Drawdown", yaxis_title="Drawdown (%)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        st.plotly_chart(fig_dd, use_container_width=True)
+    
     with tabs[2]:
-        st.header("Detalle de Operaciones")
-        with st.expander("Ver operaciones de Estrategia A"): st.dataframe(trades_a)
-        with st.expander("Ver operaciones de Estrategia B"): st.dataframe(trades_b)
+        st.subheader("Detalle de Operaciones")
+        for s_data in strategies_data:
+            with st.expander(f"Ver operaciones de: {s_data['name']}"):
+                st.dataframe(s_data["trades"])
+            
     # --- ANALISIS AVANZADO --- #
     with tabs[3]:
         st.header("🎲 Análisis Avanzado")
