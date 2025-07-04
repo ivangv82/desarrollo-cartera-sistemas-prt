@@ -263,64 +263,64 @@ else:
     
     # --- MONTECARLO SIMPLE --- #
     with tabs[3]:
-    st.header("🎲 Simulación Monte Carlo (Bootstrap Simple)")
-    st.markdown("Muestreo aleatorio de los retornos por operación para simular miles de posibles futuros de la curva de capital.")
-
-    n_sims = st.number_input("Número de simulaciones", 100, 10000, 1000, 100, key="s_mc_simple_sims")
+        st.header("🎲 Simulación Monte Carlo (Bootstrap Simple)")
+        st.markdown("Muestreo aleatorio de los retornos por operación para simular miles de posibles futuros de la curva de capital.")
     
-    if returns_a is None or returns_a.empty:
-        st.warning("No hay operaciones suficientes para ejecutar la simulación.")
-    else:
-        horizon = len(returns_a)
-        if st.button("▶️ Ejecutar MC Simple", key="s_btn_mc_simple"):
-            with st.spinner("Corriendo simulaciones..."):
-                # Simulación
-                sims_rel = run_monte_carlo(returns_a.values, n_sims, horizon)
-                sims_eq = sims_rel * initial_cap_a
-
-                # Estadísticas finales
-                final_vals = sims_eq[-1, :]
-                stats = {
-                    "Media": final_vals.mean(), "Mediana": np.median(final_vals),
-                    "P10": np.percentile(final_vals, 10), "P90": np.percentile(final_vals, 90),
-                    "VaR 95%": np.percentile(final_vals, 5), "CVaR 95%": final_vals[final_vals <= np.percentile(final_vals, 5)].mean()
-                }
-                
-                # MDD por simulación
-                mdds = np.apply_along_axis(max_dd, 0, sims_eq) * 100
-
-            st.subheader("📈 Estadísticas del Capital Final")
-            stat_cols = st.columns(len(stats))
-            for idx, (label, value) in enumerate(stats.items()):
-                stat_cols[idx].metric(label, f"${value:,.2f}")
-
-            # Envelope plot
-            sim_plot_dates = equity_a.index[1:]
-            fig_env = go.Figure()
-            fig_env.add_trace(go.Scatter(x=sim_plot_dates, y=np.percentile(sims_eq, 95, axis=1), fill=None, mode='lines', line_color='lightgrey', showlegend=False))
-            fig_env.add_trace(go.Scatter(x=sim_plot_dates, y=np.percentile(sims_eq, 5, axis=1), fill='tonexty', mode='lines', line_color='lightgrey', name='5%-95%'))
-            fig_env.add_trace(go.Scatter(x=sim_plot_dates, y=np.percentile(sims_eq, 50, axis=1), mode='lines', name='Mediana', line=dict(color='orange', dash='dash')))
-            fig_env.add_trace(go.Scatter(x=equity_a.index, y=equity_a['Equity'], mode='lines', name='Histórico', line=dict(color='blue', width=3)))
-            fig_env.update_layout(title="Simulaciones vs. Curva Histórica", xaxis_title='Fecha', yaxis_title='Capital')
-            st.plotly_chart(fig_env, use_container_width=True)
-
-            # Histogramas
-            st.subheader("📊 Histograma Capital Final")
-            hist1 = go.Figure()
-            hist1.add_trace(go.Histogram(x=final_vals, nbinsx=50, name="Frecuencia"))
-            hist1.add_vline(x=stats["Media"], line_dash="dash", annotation_text="Media", line_color="black")
-            hist1.add_vline(x=stats["Mediana"], line_dash="dash", annotation_text="Mediana", line_color="orange")
-            hist1.add_vline(x=stats["VaR 95%"], line_dash="dot", annotation_text="VaR 95%", line_color="red")
-            hist1.update_layout(xaxis_title="Capital Final", yaxis_title="Frecuencia", showlegend=False)
-            st.plotly_chart(hist1, use_container_width=True)
-
-            st.subheader("📉 Histograma de Max Drawdown (%)")
-            hist2 = go.Figure()
-            hist2.add_trace(go.Histogram(x=mdds, nbinsx=50, name="Frecuencia"))
-            hist2.add_vline(x=np.median(mdds), line_dash="dash", annotation_text="Mediana", line_color="orange")
-            hist2.add_vline(x=np.percentile(mdds, 5), line_dash="dot", annotation_text="P95 (peor 5%)", line_color="red")
-            hist2.update_layout(xaxis_title="Max Drawdown (%)", yaxis_title="Frecuencia", showlegend=False)
-            st.plotly_chart(hist2, use_container_width=True)
+        n_sims = st.number_input("Número de simulaciones", 100, 10000, 1000, 100, key="s_mc_simple_sims")
+        
+        if returns_a is None or returns_a.empty:
+            st.warning("No hay operaciones suficientes para ejecutar la simulación.")
+        else:
+            horizon = len(returns_a)
+            if st.button("▶️ Ejecutar MC Simple", key="s_btn_mc_simple"):
+                with st.spinner("Corriendo simulaciones..."):
+                    # Simulación
+                    sims_rel = run_monte_carlo(returns_a.values, n_sims, horizon)
+                    sims_eq = sims_rel * initial_cap_a
+    
+                    # Estadísticas finales
+                    final_vals = sims_eq[-1, :]
+                    stats = {
+                        "Media": final_vals.mean(), "Mediana": np.median(final_vals),
+                        "P10": np.percentile(final_vals, 10), "P90": np.percentile(final_vals, 90),
+                        "VaR 95%": np.percentile(final_vals, 5), "CVaR 95%": final_vals[final_vals <= np.percentile(final_vals, 5)].mean()
+                    }
+                    
+                    # MDD por simulación
+                    mdds = np.apply_along_axis(max_dd, 0, sims_eq) * 100
+    
+                st.subheader("📈 Estadísticas del Capital Final")
+                stat_cols = st.columns(len(stats))
+                for idx, (label, value) in enumerate(stats.items()):
+                    stat_cols[idx].metric(label, f"${value:,.2f}")
+    
+                # Envelope plot
+                sim_plot_dates = equity_a.index[1:]
+                fig_env = go.Figure()
+                fig_env.add_trace(go.Scatter(x=sim_plot_dates, y=np.percentile(sims_eq, 95, axis=1), fill=None, mode='lines', line_color='lightgrey', showlegend=False))
+                fig_env.add_trace(go.Scatter(x=sim_plot_dates, y=np.percentile(sims_eq, 5, axis=1), fill='tonexty', mode='lines', line_color='lightgrey', name='5%-95%'))
+                fig_env.add_trace(go.Scatter(x=sim_plot_dates, y=np.percentile(sims_eq, 50, axis=1), mode='lines', name='Mediana', line=dict(color='orange', dash='dash')))
+                fig_env.add_trace(go.Scatter(x=equity_a.index, y=equity_a['Equity'], mode='lines', name='Histórico', line=dict(color='blue', width=3)))
+                fig_env.update_layout(title="Simulaciones vs. Curva Histórica", xaxis_title='Fecha', yaxis_title='Capital')
+                st.plotly_chart(fig_env, use_container_width=True)
+    
+                # Histogramas
+                st.subheader("📊 Histograma Capital Final")
+                hist1 = go.Figure()
+                hist1.add_trace(go.Histogram(x=final_vals, nbinsx=50, name="Frecuencia"))
+                hist1.add_vline(x=stats["Media"], line_dash="dash", annotation_text="Media", line_color="black")
+                hist1.add_vline(x=stats["Mediana"], line_dash="dash", annotation_text="Mediana", line_color="orange")
+                hist1.add_vline(x=stats["VaR 95%"], line_dash="dot", annotation_text="VaR 95%", line_color="red")
+                hist1.update_layout(xaxis_title="Capital Final", yaxis_title="Frecuencia", showlegend=False)
+                st.plotly_chart(hist1, use_container_width=True)
+    
+                st.subheader("📉 Histograma de Max Drawdown (%)")
+                hist2 = go.Figure()
+                hist2.add_trace(go.Histogram(x=mdds, nbinsx=50, name="Frecuencia"))
+                hist2.add_vline(x=np.median(mdds), line_dash="dash", annotation_text="Mediana", line_color="orange")
+                hist2.add_vline(x=np.percentile(mdds, 5), line_dash="dot", annotation_text="P95 (peor 5%)", line_color="red")
+                hist2.update_layout(xaxis_title="Max Drawdown (%)", yaxis_title="Frecuencia", showlegend=False)
+                st.plotly_chart(hist2, use_container_width=True)
 
     # --- MONTECARLO POR BLOQUES --- #
     with tabs[4]:
