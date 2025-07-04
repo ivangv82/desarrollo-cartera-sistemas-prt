@@ -358,5 +358,17 @@ else:
                     ttrs_s = [next((i+1 for i, v in enumerate(path) if v >= initial_cap_a), np.nan) for path in sims_abs_st.T]
                     recovered_count_s = np.count_nonzero(~np.isnan(ttrs_s)); pct_recov_s = 100 * recovered_count_s / n_sims_st_s if n_sims_st_s > 0 else 0
                     med_ttr_s = np.nanmedian(ttrs_s) if recovered_count_s > 0 else 'N/A'; p90_ttr_s = np.nanpercentile(ttrs_s, 90) if recovered_count_s > 0 else 'N/A'
-                    st.subheader("📊 Estadísticas de Recuperación"); c1, c2, c3 = st.columns(3); c1.metric("% Recuperadas", f"{pct_recov_s:.1f}%"); c2.metric("Mediana Recuperación (ops)", f"{med_ttr_s:.0f}" if isinstance(med_ttr_s, (int, float)) else med_ttr_s); c3.metric("P90 Recuperación (ops)", f"{p90_ttr_s:.0f}" if isinstance(p90_ttr_s, (int, float)) else p90_ttr_s)
-                    # ... (resto de gráficos para Stress Test)
+                    st.subheader("📊 Estadísticas de Recuperación")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("% Simulaciones Recuperadas", f"{pct_recov:.1f}%")
+                    c2.metric("Mediana Tiempo Recuperación (ops)", f"{med_ttr:.0f}" if isinstance(med_ttr, (int, float)) else med_ttr)
+                    c3.metric("P90 Tiempo Recuperación (ops)", f"{p90_ttr:.0f}" if isinstance(p90_ttr, (int, float)) else p90_ttr)
+        
+                    # Histograma de TTR
+                    st.subheader("📈 Histograma de Operaciones hasta Recuperación")
+                    fig_ttr = go.Figure()
+                    if recovered_count > 0:
+                        fig_ttr.add_trace(go.Histogram(x=ttrs[~np.isnan(ttrs)], nbinsx=50))
+                    fig_ttr.update_layout(xaxis_title="Operaciones hasta recuperar capital inicial", yaxis_title="Frecuencia")
+                    st.plotly_chart(fig_ttr, use_container_width=True)
+
