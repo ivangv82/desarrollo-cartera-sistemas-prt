@@ -286,43 +286,24 @@ with tabs[2]:
         st.header("🎲 Monte Carlo Simple")
         n_sims = st.number_input("Número de simulaciones", 100, 20000, 1000, 100, key="mc_simple_n")
         if st.button("▶️ Ejecutar MC Simple", key="mc_simple_run"):
+            # 1) Spinner y cálculos
             with st.spinner("Corriendo simulaciones..."):
-                arr = ret_a.values[np.isfinite(ret_a.values)]
-                horizon = len(arr)
+                arr      = active_returns.values[np.isfinite(active_returns.values)]
+                horizon  = len(arr)
                 sims_rel = run_monte_carlo(arr, n_sims, horizon)
-                init = float(eq_a['Equity'].iloc[0])
-                sims_eq = sims_rel * init
-    
+                init     = float(active_equity['Equity'].iloc[0])
+                sims_eq  = sims_rel * init
+
                 # percentiles
                 p10 = np.percentile(sims_eq, 10, axis=1)
                 p50 = np.percentile(sims_eq, 50, axis=1)
                 p90 = np.percentile(sims_eq, 90, axis=1)
-                dates_mc = eq_a.index[1:]  # omitir el primer punto
-    
-                # 1) Envelope plot
-                fig_env = go.Figure()
-                fig_env.add_trace(go.Scatter(x=dates_mc, y=p90,
-                                             mode='lines', line_color='lightgrey', showlegend=False))
-                fig_env.add_trace(go.Scatter(x=dates_mc, y=p10,
-                                             fill='tonexty', mode='lines',
-                                             line_color='lightgrey', name='10–90%'))
-                fig_env.add_trace(go.Scatter(x=dates_mc, y=p50,
-                                             mode='lines', line=dict(color='orange', dash='dash'),
-                                             name='Mediana P50'))
-                fig_env.add_trace(go.Scatter(x=eq_a.index, y=eq_a['Equity'],
-                                             mode='lines', line=dict(color='blue', width=2),
-                                             name='Histórico'))
-                fig_env.update_layout(
-                    title="Envelope Monte Carlo Simple",
-                    xaxis_title="Fecha", yaxis_title="Capital",
-                    template="plotly_white", hovermode="x unified"
-                )
-                st.plotly_chart(fig_env, use_container_width=True)
-    
-                # 2) Estadísticas finales
+                dates_mc = active_equity.index[1:]
+
+                # estadísticas finales
                 final_vals = sims_eq[-1, :]
-                var95 = np.percentile(final_vals, 5)
-                cvar95 = final_vals[final_vals <= var95].mean()
+                var95   = np.percentile(final_vals, 5)
+                cvar95  = final_vals[final_vals <= var95].mean()
                 stats = {
                     "Media": final_vals.mean(),
                     "Mediana": np.median(final_vals),
@@ -331,41 +312,52 @@ with tabs[2]:
                     "VaR 95%": var95,
                     "CVaR 95%": cvar95
                 }
-                st.subheader("📈 Estadísticas del Capital Final")
-                stat_cols = st.columns(len(stats))
-                for idx, (label, val) in enumerate(stats.items()):
-                    stat_cols[idx].metric(label, f"${val:,.2f}")
-    
-                # 3) Histograma Capital Final
-                fig_hist = go.Figure()
-                fig_hist.add_trace(go.Histogram(x=final_vals, nbinsx=50))
-                fig_hist.add_vline(x=stats["Mediana"],   line_dash="dash",  annotation_text="Mediana", line_color="orange")
-                fig_hist.add_vline(x=stats["CVaR 95%"],  line_dash="dot",   annotation_text="CVaR 95%", line_color="red")
-                fig_hist.update_layout(
-                    title="Histograma Capital Final",
-                    xaxis_title="Capital Final", yaxis_title="Frecuencia",
-                    template="plotly_white", showlegend=False
-                )
-                st.plotly_chart(fig_hist, use_container_width=True)
-    
-                # 4) Histograma Máx Drawdown
+
+                # drawdowns simulados
                 def compute_mdd(path):
-                    cummax = np.maximum.accumulate(np.insert(path, 0, init))
-                    dd = (np.insert(path, 0, init) - cummax) / cummax
+                    path_full = np.insert(path, 0, init)
+                    cm = np.maximum.accumulate(path_full)
+                    dd = (path_full - cm) / cm
                     return dd.min() * 100
-    
+
                 mdds = np.array([compute_mdd(sims_eq[:, i]) for i in range(n_sims)])
-                fig_ddh = go.Figure()
-                fig_ddh.add_trace(go.Histogram(x=mdds, nbinsx=50))
-                fig_ddh.add_vline(x=np.median(mdds),     line_dash="dash", annotation_text="Mediana", line_color="orange")
-                fig_ddh.add_vline(x=np.percentile(mdds, 95), line_dash="dot",  annotation_text="P95",     line_color="red")
-                fig_ddh.update_layout(
-                    title="Histograma Máx Drawdown (%)",
-                    xaxis_title="Max Drawdown (%)", yaxis_title="Frecuencia",
-                    template="plotly_white", showlegend=False
-                )
-                st.plotly_chart(fig_ddh, use_container_width=True)
-    
+
+            # 2) Gráfica Envelope
+            fig_env = go.Figure()
+            fig_env.add_trace(go.Scatter(x=dates_mc, y=p90, mode='lines', line_color='lightgrey', showlegend=False))
+            fig_env.add_trace(go.Scatter(x=dates_mc, y=p10, fill='tonexty', mode='lines', line_color='lightgrey', name='10–90%'))
+            fig_env.add_trace(go.Scatter(x=dates_mc, y=p50, mode='lines', line=dict(color='orange', dash='dash'), name='Mediana P50'))
+            fig_env.add_trace(go.Scatter(x=active_equity.index, y=active_equity['Equity'], mode='lines', line=dict(color='blue', width=2), name='Histórico'))
+            fig_env.update_layout(title="Envelope Monte Carlo Simple", xaxis_title="Fecha", yaxis_title="Capital", template="plotly_white", hovermode="x unified")
+            st.plotly_chart(fig_env, use_container_width=True)
+
+            # 3) Métricas en columnas
+            st.subheader("📈 Estadísticas del Capital Final")
+            cols = st.columns(len(stats))
+            for j, (label, value) in enumerate(stats.items()):
+                cols[j].metric(label, f"${value:,.2f}")
+
+            # 4) Histograma Capital Final
+            st.subheader("📊 Histograma Capital Final")
+            fig_hist = go.Figure()
+            fig_hist.add_trace(go.Histogram(x=final_vals, nbinsx=50))
+            fig_hist.add_vline(x=stats["Mediana"], line_dash="dash", annotation_text="Mediana", line_color="orange")
+            fig_hist.add_vline(x=stats["CVaR 95%"], line_dash="dot", annotation_text="CVaR 95%", line_color="red")
+            fig_hist.update_layout(xaxis_title="Capital Final", yaxis_title="Frecuencia", template="plotly_white", showlegend=False)
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+            # 5) Histograma Max Drawdown
+            st.subheader("📉 Histograma Máx Drawdown (%)")
+            fig_ddh = go.Figure()
+            fig_ddh.add_trace(go.Histogram(x=mdds, nbinsx=50))
+            fig_ddh.add_vline(x=np.median(mdds), line_dash="dash", annotation_text="Mediana", line_color="orange")
+            fig_ddh.add_vline(x=np.percentile(mdds, 95), line_dash="dot", annotation_text="P95", line_color="red")
+            fig_ddh.update_layout(xaxis_title="Max Drawdown (%)", yaxis_title="Frecuencia", template="plotly_white", showlegend=False)
+            st.plotly_chart(fig_ddh, use_container_width=True)
+
+        
+
+      
     
     # --- Monte Carlo Block Bootstrap ---
     with sub[4]:
