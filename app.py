@@ -213,18 +213,115 @@ if st.session_state.compare_mode and trades_file_b:
         st.header("Detalle de Operaciones")
         with st.expander("Ver operaciones de Estrategia A"): st.dataframe(trades_a)
         with st.expander("Ver operaciones de Estrategia B"): st.dataframe(trades_b)
-    
+    # --- ANALISIS AVANZADO --- #
     with tabs[3]:
-        st.header("Análisis Avanzado")
-        strategy_choice = st.selectbox("Elige la estrategia para analizar:", ("Estrategia A", "Estrategia B"), key="adv_choice_comp")
-        active_returns, active_equity, active_cap = (returns_a, equity_a, initial_cap_a) if strategy_choice == "Estrategia A" else (returns_b, equity_b, initial_cap_b)
+        st.header("🎲 Análisis Avanzado")
         
-        st.subheader(f"Simulación Monte Carlo (Block Bootstrap) para {strategy_choice}")
-        if active_returns is not None:
-            # ... Aquí iría el código completo de las pestañas avanzadas, que es bastante largo
-            st.success(f"Funcionalidad de análisis avanzado para {strategy_choice} se mostraría aquí.")
+        # --- Selector de Estrategia ---
+        strategy_choice = st.selectbox(
+            "Elige la estrategia para analizar en detalle:",
+            ("Estrategia A", "Estrategia B"),
+            key="adv_choice_comp"
+        )
+    
+        # Asignar los datos de la estrategia elegida a variables "activas"
+        if strategy_choice == "Estrategia A":
+            active_returns, active_equity, active_cap = returns_a, equity_a, initial_cap_a
         else:
-            st.warning("No hay datos para la estrategia seleccionada.")
+            active_returns, active_equity, active_cap = returns_b, equity_b, initial_cap_b
+    
+        st.info(f"Mostrando análisis avanzado para **{strategy_choice}**.")
+    
+        if active_returns is None or active_returns.empty:
+            st.warning("No hay datos de operaciones suficientes para realizar el análisis en la estrategia seleccionada.")
+        else:
+            # --- Expander para cada tipo de análisis ---
+            with st.expander("1. Simulación Monte Carlo (Bootstrap Simple)"):
+                n_sims = st.number_input("Número de simulaciones", 100, 10000, 1000, 100, key="c_mc_simple_sims")
+                horizon = len(active_returns)
+                
+                if st.button("▶️ Ejecutar MC Simple", key="c_btn_mc_simple"):
+                    with st.spinner("Corriendo simulaciones..."):
+                        sims_rel = run_monte_carlo(active_returns.values, n_sims, horizon)
+                        sims_eq = sims_rel * active_cap
+                        final_vals = sims_eq[-1, :]
+                        stats = {"Media": final_vals.mean(), "Mediana": np.median(final_vals), "VaR 95%": np.percentile(final_vals, 5)}
+                        mdds = np.apply_along_axis(max_dd, 0, sims_eq) * 100
+    
+                    st.subheader("📈 Estadísticas Clave (MC Simple)")
+                    stat_cols = st.columns(len(stats))
+                    for idx, (label, value) in enumerate(stats.items()):
+                        stat_cols[idx].metric(label, f"${value:,.2f}")
+                    
+                    # Gráficos...
+                    fig_hist_simple = go.Figure(go.Histogram(x=final_vals, nbinsx=50, name="Frecuencia"))
+                    fig_hist_simple.update_layout(title="Histograma de Capital Final")
+                    st.plotly_chart(fig_hist_simple, use_container_width=True)
+    
+    
+            with st.expander("2. Simulación Monte Carlo (Block Bootstrap)"):
+                cols_bb = st.columns(2)
+                block_size = cols_bb[0].number_input("Tamaño de bloque", 1, 100, 5, 1, key="c_mc_block_size")
+                n_sims_bb = cols_bb[1].number_input("Nº Simulaciones", 100, 10000, 1000, 100, key="c_mc_block_sims")
+                horizon_bb = len(active_returns)
+                
+                if st.button("▶️ Ejecutar MC por Bloques", key="c_btn_mc_block"):
+                    with st.spinner("Corriendo simulaciones con bloques..."):
+                        sims_rel_bb = run_block_bootstrap_monte_carlo(active_returns.values, n_sims_bb, block_size, horizon_bb)
+                        if sims_rel_bb is None:
+                            st.error(f"Error: El tamaño de bloque ({block_size}) es inválido.")
+                        else:
+                            sims_eq_bb = sims_rel_bb * active_cap
+                            final_vals_bb = sims_eq_bb[-1, :]
+                            stats_bb = {"Media": final_vals_bb.mean(), "Mediana": np.median(final_vals_bb), "VaR 95%": np.percentile(final_vals_bb, 5)}
+                            mdds_bb = np.apply_along_axis(max_dd, 0, sims_eq_bb) * 100
+    
+                            st.subheader("📈 Estadísticas Clave (Block Bootstrap)")
+                            stat_cols_bb = st.columns(len(stats_bb))
+                            for idx, (label, value) in enumerate(stats_bb.items()):
+                                stat_cols_bb[idx].metric(label, f"${value:,.2f}")
+    
+                            # Gráficos...
+                            fig_hist_bb = go.Figure(go.Histogram(x=final_vals_bb, nbinsx=50, name="Frecuencia"))
+                            fig_hist_bb.update_layout(title="Histograma de Capital Final (Block Bootstrap)")
+                            st.plotly_chart(fig_hist_bb, use_container_width=True)
+    
+    
+            with st.expander("3. Stress Test de Recuperación"):
+                cols_st = st.columns(3)
+                shock_pct = cols_st[0].number_input("Shock inicial (%)", -99.0, -1.0, -20.0, 1.0, format="%.1f", key="c_st_shock") / 100.0
+                horizon_ops = cols_st[1].number_input("Horizonte recuperación (ops)", 1, 10000, 252, 1, key="c_st_horizon")
+                n_sims_st = cols_st[2].number_input("Nº Simulaciones", 100, 10000, 500, 100, key="c_st_sims")
+                
+                if st.button("▶️ Ejecutar Stress Test", key="c_btn_st"):
+                    with st.spinner("Corriendo stress tests..."):
+                        shocked_cap = active_cap * (1 + shock_pct)
+                        ret_arr = active_returns.values[np.isfinite(active_returns.values)]
+                        sims_post_shock_rel = run_monte_carlo(ret_arr, n_sims_st, horizon_ops)
+                        sims_post_shock_abs = sims_post_shock_rel * shocked_cap
+    
+                        ttrs = []
+                        for i in range(n_sims_st):
+                            path = sims_post_shock_abs[:, i]
+                            rec_indices = np.where(path >= active_cap)[0]
+                            ttrs.append(rec_indices[0] + 1 if rec_indices.size > 0 else np.nan)
+                        ttrs = np.array(ttrs)
+                        
+                        recovered_count = np.count_nonzero(~np.isnan(ttrs))
+                        pct_recov = 100 * recovered_count / n_sims_st if n_sims_st > 0 else 0
+                        med_ttr = np.nanmedian(ttrs) if recovered_count > 0 else 'N/A'
+                        
+                        st.subheader("📊 Estadísticas de Recuperación")
+                        c1, c2 = st.columns(2)
+                        c1.metric("% Simulaciones Recuperadas", f"{pct_recov:.1f}%")
+                        c2.metric("Mediana Tiempo Recuperación (ops)", f"{med_ttr:.0f}" if isinstance(med_ttr, (int, float)) else med_ttr)
+    
+                        # Gráfico...
+                        fig_ttr = go.Figure()
+                        if recovered_count > 0:
+                            fig_ttr.add_trace(go.Histogram(x=ttrs[~np.isnan(ttrs)], nbinsx=50))
+                        fig_ttr.update_layout(title="Histograma de Operaciones hasta Recuperación", xaxis_title="Operaciones", yaxis_title="Frecuencia")
+                        st.plotly_chart(fig_ttr, use_container_width=True)
 
 # --- MODO ANÁLISIS INDIVIDUAL ---
 else:
