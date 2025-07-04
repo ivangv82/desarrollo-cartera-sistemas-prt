@@ -188,25 +188,25 @@ if st.session_state.compare_mode and trades_file_b:
     with tabs[1]:
         st.header("Curvas de Capital y Drawdowns")
         if equity_a is not None and equity_b is not None:
-            st.subheader("Curvas de Capital (Normalizadas)")
             norm_equity_a = (equity_a['Equity'] / equity_a['Equity'].iloc[0]) * 100
             norm_equity_b = (equity_b['Equity'] / equity_b['Equity'].iloc[0]) * 100
-            fig_eq = go.Figure()
-            fig_eq.add_trace(go.Scatter(x=norm_equity_a.index, y=norm_equity_a, mode='lines', name='Estrategia A', line=dict(color='royalblue')))
-            fig_eq.add_trace(go.Scatter(x=norm_equity_b.index, y=norm_equity_b, mode='lines', name='Estrategia B', line=dict(color='darkorange')))
-            fig_eq.update_layout(yaxis_title="Capital Normalizado (Base 100)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig_eq, use_container_width=True)
-            st.markdown("---")
-            
-            # --- GRÁFICO DE DRAWDOWN COMBINADO POR FECHA (CORREGIDO) ---
-            st.subheader("Curvas de Drawdown por Fecha")
-            dd_pct_a = (equity_a['Equity'] - equity_a['Equity'].cummax()) / equity_a['Equity'].cummax() * 100
-            dd_pct_b = (equity_b['Equity'] - equity_b['Equity'].cummax()) / equity_b['Equity'].cummax() * 100
-            fig_dd = go.Figure()
-            fig_dd.add_trace(go.Scatter(x=dd_pct_a.index, y=dd_pct_a.values, mode='lines', name='Drawdown A', line=dict(color='indianred'), fill='tozeroy', opacity=0.7))
-            fig_dd.add_trace(go.Scatter(x=dd_pct_b.index, y=dd_pct_b.values, mode='lines', name='Drawdown B', line=dict(color='orange'), fill='tozeroy', opacity=0.7))
-            fig_dd.update_layout(yaxis_title="Drawdown (%)", xaxis_title="Fecha", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig_dd, use_container_width=True)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=norm_equity_a.index, y=norm_equity_a, mode='lines', name='Estrategia A', line=dict(color='royalblue')))
+            fig.add_trace(go.Scatter(x=norm_equity_b.index, y=norm_equity_b, mode='lines', name='Estrategia B', line=dict(color='darkorange')))
+            fig.update_layout(title="Comparativa de Curvas de Capital (Normalizadas)", yaxis_title="Capital Normalizado (Base 100)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            st.plotly_chart(fig, use_container_width=True)
+
+            with st.expander("Ver Drawdown de Estrategia A"):
+                dd_pct_a = (equity_a['Equity'] - equity_a['Equity'].cummax()) / equity_a['Equity'].cummax() * 100
+                fig_dd_a = go.Figure(go.Scatter(x=dd_pct_a.index, y=dd_pct_a.values, fill='tozeroy', mode='lines', line=dict(color='indianred')))
+                fig_dd_a.update_layout(title="Drawdown Estrategia A", yaxis_title="Drawdown (%)", height=300)
+                st.plotly_chart(fig_dd_a, use_container_width=True)
+
+            with st.expander("Ver Drawdown de Estrategia B"):
+                dd_pct_b = (equity_b['Equity'] - equity_b['Equity'].cummax()) / equity_b['Equity'].cummax() * 100
+                fig_dd_b = go.Figure(go.Scatter(x=dd_pct_b.index, y=dd_pct_b.values, fill='tozeroy', mode='lines', line=dict(color='orange')))
+                fig_dd_b.update_layout(title="Drawdown Estrategia B", yaxis_title="Drawdown (%)", height=300)
+                st.plotly_chart(fig_dd_b, use_container_width=True)
 
     with tabs[2]:
         st.header("Detalle de Operaciones")
