@@ -280,40 +280,172 @@ with tabs[2]:
     with sub[2]:
         df_tr = load_prt_trades(strategy_files[i])
         st.dataframe(df_tr, use_container_width=True)
-
-    # MC Simple
+        
+    # --- Simulación Monte Carlo Simple ---
     with sub[3]:
-        n_sims = st.number_input("Simulaciones MC Simple",100,10000,1000,100,key="mc_s")
-        if st.button("▶️ Ejecutar MC Simple", key="btn_mc_s"):
-            sims = run_monte_carlo(ret_a.values, n_sims, len(ret_a))
-            init = float(eq_a['Equity'].iloc[0])
-            sims_eq = sims*init
-            final = sims_eq[-1,:]
-            mean,med,var95 = final.mean(),np.median(final),np.percentile(final,5)
-            cvar95=final[final<=var95].mean()
-            c1,c2,c3,c4 = st.columns(4)
-            c1.metric("Media",f"${mean:,.2f}")
-            c2.metric("Mediana",f"${med:,.2f}")
-            c3.metric("VaR 95%",f"${var95:,.2f}")
-            c4.metric("CVaR 95%",f"${cvar95:,.2f}")
-
-    # MC Bloques
+        st.header("🎲 Monte Carlo Simple")
+        n_sims = st.number_input("Número de simulaciones", 100, 20000, 1000, 100, key="mc_simple_n")
+        if st.button("▶️ Ejecutar MC Simple", key="mc_simple_run"):
+            with st.spinner("Corriendo simulaciones..."):
+                arr = ret_a.values[np.isfinite(ret_a.values)]
+                horizon = len(arr)
+                sims_rel = run_monte_carlo(arr, n_sims, horizon)
+                init = float(eq_a['Equity'].iloc[0])
+                sims_eq = sims_rel * init
+    
+                # percentiles
+                p10 = np.percentile(sims_eq, 10, axis=1)
+                p50 = np.percentile(sims_eq, 50, axis=1)
+                p90 = np.percentile(sims_eq, 90, axis=1)
+                dates_mc = eq_a.index[1:]  # omitir el primer punto
+    
+                # 1) Envelope plot
+                fig_env = go.Figure()
+                fig_env.add_trace(go.Scatter(x=dates_mc, y=p90,
+                                             mode='lines', line_color='lightgrey', showlegend=False))
+                fig_env.add_trace(go.Scatter(x=dates_mc, y=p10,
+                                             fill='tonexty', mode='lines',
+                                             line_color='lightgrey', name='10–90%'))
+                fig_env.add_trace(go.Scatter(x=dates_mc, y=p50,
+                                             mode='lines', line=dict(color='orange', dash='dash'),
+                                             name='Mediana P50'))
+                fig_env.add_trace(go.Scatter(x=eq_a.index, y=eq_a['Equity'],
+                                             mode='lines', line=dict(color='blue', width=2),
+                                             name='Histórico'))
+                fig_env.update_layout(
+                    title="Envelope Monte Carlo Simple",
+                    xaxis_title="Fecha", yaxis_title="Capital",
+                    template="plotly_white", hovermode="x unified"
+                )
+                st.plotly_chart(fig_env, use_container_width=True)
+    
+                # 2) Estadísticas finales
+                final_vals = sims_eq[-1, :]
+                var95 = np.percentile(final_vals, 5)
+                cvar95 = final_vals[final_vals <= var95].mean()
+                stats = {
+                    "Media": final_vals.mean(),
+                    "Mediana": np.median(final_vals),
+                    "P10": np.percentile(final_vals, 10),
+                    "P90": np.percentile(final_vals, 90),
+                    "VaR 95%": var95,
+                    "CVaR 95%": cvar95
+                }
+                st.subheader("📈 Estadísticas del Capital Final")
+                stat_cols = st.columns(len(stats))
+                for idx, (label, val) in enumerate(stats.items()):
+                    stat_cols[idx].metric(label, f"${val:,.2f}")
+    
+                # 3) Histograma Capital Final
+                fig_hist = go.Figure()
+                fig_hist.add_trace(go.Histogram(x=final_vals, nbinsx=50))
+                fig_hist.add_vline(x=stats["Mediana"],   line_dash="dash",  annotation_text="Mediana", line_color="orange")
+                fig_hist.add_vline(x=stats["CVaR 95%"],  line_dash="dot",   annotation_text="CVaR 95%", line_color="red")
+                fig_hist.update_layout(
+                    title="Histograma Capital Final",
+                    xaxis_title="Capital Final", yaxis_title="Frecuencia",
+                    template="plotly_white", showlegend=False
+                )
+                st.plotly_chart(fig_hist, use_container_width=True)
+    
+                # 4) Histograma Máx Drawdown
+                def compute_mdd(path):
+                    cummax = np.maximum.accumulate(np.insert(path, 0, init))
+                    dd = (np.insert(path, 0, init) - cummax) / cummax
+                    return dd.min() * 100
+    
+                mdds = np.array([compute_mdd(sims_eq[:, i]) for i in range(n_sims)])
+                fig_ddh = go.Figure()
+                fig_ddh.add_trace(go.Histogram(x=mdds, nbinsx=50))
+                fig_ddh.add_vline(x=np.median(mdds),     line_dash="dash", annotation_text="Mediana", line_color="orange")
+                fig_ddh.add_vline(x=np.percentile(mdds, 95), line_dash="dot",  annotation_text="P95",     line_color="red")
+                fig_ddh.update_layout(
+                    title="Histograma Máx Drawdown (%)",
+                    xaxis_title="Max Drawdown (%)", yaxis_title="Frecuencia",
+                    template="plotly_white", showlegend=False
+                )
+                st.plotly_chart(fig_ddh, use_container_width=True)
+    
+    
+    # --- Monte Carlo Block Bootstrap ---
     with sub[4]:
-        bs = st.number_input("Block size",1,100,5,1,key="bb_s")
-        n_bb = st.number_input("Simulaciones MC Bloques",100,10000,1000,100,key="mc_bb")
-        if st.button("▶️ Ejecutar MC Bloques", key="btn_mc_bb"):
-            sims_bb = run_block_bootstrap_monte_carlo(ret_a.values,n_bb,bs,len(ret_a))
-            if sims_bb is None:
-                st.error("Block size inválido.")
-            else:
-                init=float(eq_a['Equity'].iloc[0])
-                sims_eq_bb=sims_bb*init
-                final_bb=sims_eq_bb[-1,:]
-                mean,med,var95=final_bb.mean(),np.median(final_bb),np.percentile(final_bb,5)
-                c1,c2,c3 = st.columns(3)
-                c1.metric("Media",f"${mean:,.2f}")
-                c2.metric("Mediana",f"${med:,.2f}")
-                c3.metric("VaR 95%",f"${var95:,.2f}")
+        st.header("🎲 Monte Carlo Block Bootstrap")
+        block_size = st.number_input("Tamaño de bloque (ops)", 1, len(ret_a), 5, 1, key="mc_block_bs")
+        n_sims_bb  = st.number_input("Número de simulaciones", 100, 20000, 1000, 100, key="mc_block_n")
+        if st.button("▶️ Ejecutar MC Bloques", key="mc_block_run"):
+            with st.spinner("Corriendo MC por bloques..."):
+                bb = run_block_bootstrap_monte_carlo(ret_a.values, n_sims_bb, block_size, len(ret_a))
+                if bb is None:
+                    st.error("Block size inválido (debe ser < número de operaciones).")
+                else:
+                    init = float(eq_a['Equity'].iloc[0])
+                    sims_eq_bb = bb * init
+    
+                    # percentiles
+                    p10_bb = np.percentile(sims_eq_bb, 10, axis=1)
+                    p50_bb = np.percentile(sims_eq_bb, 50, axis=1)
+                    p90_bb = np.percentile(sims_eq_bb, 90, axis=1)
+                    dates_bb = eq_a.index[1:]
+    
+                    # 1) Envelope plot bloques
+                    fig_env_bb = go.Figure()
+                    fig_env_bb.add_trace(go.Scatter(x=dates_bb, y=p90_bb,
+                                                   mode='lines', line_color='lightgrey', showlegend=False))
+                    fig_env_bb.add_trace(go.Scatter(x=dates_bb, y=p10_bb,
+                                                   fill='tonexty', mode='lines', line_color='lightgrey', name='10–90%'))
+                    fig_env_bb.add_trace(go.Scatter(x=dates_bb, y=p50_bb,
+                                                   mode='lines', line=dict(color='orange', dash='dash'), name='Mediana'))
+                    fig_env_bb.add_trace(go.Scatter(x=eq_a.index, y=eq_a['Equity'],
+                                                   mode='lines', line=dict(color='blue', width=2), name='Histórico'))
+                    fig_env_bb.update_layout(
+                        title="Envelope MC Block Bootstrap",
+                        xaxis_title="Fecha", yaxis_title="Capital",
+                        template="plotly_white", hovermode="x unified"
+                    )
+                    st.plotly_chart(fig_env_bb, use_container_width=True)
+    
+                    # 2) Estadísticas
+                    final_bb = sims_eq_bb[-1, :]
+                    var95_bb = np.percentile(final_bb, 5)
+                    cvar95_bb = final_bb[final_bb <= var95_bb].mean()
+                    stats_bb = {
+                        "Media": final_bb.mean(),
+                        "Mediana": np.median(final_bb),
+                        "P10": np.percentile(final_bb, 10),
+                        "P90": np.percentile(final_bb, 90),
+                        "VaR 95%": var95_bb,
+                        "CVaR 95%": cvar95_bb
+                    }
+                    st.subheader("📈 Estadísticas Capital Final (BB)")
+                    cols_bb = st.columns(len(stats_bb))
+                    for idx, (lbl, val) in enumerate(stats_bb.items()):
+                        cols_bb[idx].metric(lbl, f"${val:,.2f}")
+    
+                    # 3) Histograma Capital Final BB
+                    fig_hist_bb = go.Figure()
+                    fig_hist_bb.add_trace(go.Histogram(x=final_bb, nbinsx=50))
+                    fig_hist_bb.add_vline(x=stats_bb["Mediana"],  line_dash="dash", annotation_text="Mediana", line_color="orange")
+                    fig_hist_bb.add_vline(x=stats_bb["CVaR 95%"], line_dash="dot",  annotation_text="CVaR 95%", line_color="red")
+                    fig_hist_bb.update_layout(
+                        title="Histograma Capital Final (BB)",
+                        xaxis_title="Capital Final", yaxis_title="Frecuencia",
+                        template="plotly_white", showlegend=False
+                    )
+                    st.plotly_chart(fig_hist_bb, use_container_width=True)
+    
+                    # 4) Histograma Máx Drawdown BB
+                    mdds_bb = np.array([max_dd(sims_eq_bb[:, j]) * 100 for j in range(n_sims_bb)])
+                    fig_dd_bb = go.Figure()
+                    fig_dd_bb.add_trace(go.Histogram(x=mdds_bb, nbinsx=50))
+                    fig_dd_bb.add_vline(x=np.median(mdds_bb),      line_dash="dash", annotation_text="Mediana", line_color="orange")
+                    fig_dd_bb.add_vline(x=np.percentile(mdds_bb,95), line_dash="dot",  annotation_text="P95",    line_color="red")
+                    fig_dd_bb.update_layout(
+                        title="Histograma Máx Drawdown (%) (BB)",
+                        xaxis_title="Max Drawdown (%)", yaxis_title="Frecuencia",
+                        template="plotly_white", showlegend=False
+                    )
+                    st.plotly_chart(fig_dd_bb, use_container_width=True)
+
 
     # Stress Test
     with sub[5]:
