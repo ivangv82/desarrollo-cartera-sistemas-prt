@@ -288,7 +288,7 @@ with tabs[2]:
         if st.button("▶️ Ejecutar MC Simple", key="mc_simple_run"):
             # 1) Spinner: cálculos
             with st.spinner("Corriendo simulaciones..."):
-                arr      = returns_a.values[np.isfinite(returns_a.values)]
+                arr      = ret_a.values[np.isfinite(ret_a.values)]
                 horizon  = len(arr)
                 sims_rel = run_monte_carlo(arr, n_sims, horizon)
                 init     = float(eq_a['Equity'].iloc[0])
