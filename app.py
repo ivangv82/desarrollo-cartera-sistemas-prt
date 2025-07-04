@@ -128,26 +128,44 @@ if 'compare_mode' not in st.session_state:
 def activate_compare_mode():
     st.session_state.compare_mode = True
 
-# --- SIDEBAR DINÁMICO ---
-st.sidebar.header("📁 Carga de Datos")
-trades_file_a = st.sidebar.file_uploader("Reporte de Estrategia", type=["csv","txt"], key="file_a")
-initial_cap_a = st.sidebar.number_input("Capital Inicial", value=10000.0, min_value=0.0, step=1000.0, format="%.2f", key="cap_a")
+# --- SIDEBAR DINÁMICO PARA N ESTRATEGIAS ---
+st.sidebar.header("📁 Carga de Estrategias")
+num_strategies = st.sidebar.number_input(
+    "Número de estrategias a comparar", 
+    min_value=1, 
+    max_value=10,
+    value=2,  # Lo ponemos en 2 por defecto para que sea más intuitivo
+    step=1
+)
 
-trades_file_b = None
-if st.session_state.compare_mode:
-    trades_file_b = st.sidebar.file_uploader("Reporte de Estrategia B", type=["csv","txt"], key="file_b")
-    initial_cap_b = st.sidebar.number_input("Capital Inicial B", value=10000.0, min_value=0.0, step=1000.0, format="%.2f", key="cap_b")
-else:
-    st.sidebar.button("➕ Comparar con otra Estrategia", on_click=activate_compare_mode, use_container_width=True)
+uploaded_files = []
+initial_caps = []
 
-st.sidebar.header("⚙️ Parámetros Globales")
-timeframe = st.sidebar.selectbox("Timeframe de Velas", ["1mn","5mn","15mn","30mn","1h","4h","1d","1w","1mes"], index=6)
-if timeframe in ["1mn","5mn","15mn","30mn","1h","4h"]:
-    trading_hours_per_day = st.sidebar.number_input("Horas de trading/día", 1.0, 24.0, 6.5, 0.5)
-    minutes_in_tf = {"1mn":1, "5mn":5, "15mn":15, "30mn":30, "1h":60, "4h":240}[timeframe]
-    ppy = (trading_hours_per_day * 60 / minutes_in_tf) * 252
-else: ppy = {"1d":252, "1w":52, "1mes":12}[timeframe]
-st.sidebar.caption(f"Periodos por año calculados: {int(ppy)}")
+st.sidebar.markdown("---")
+
+for i in range(num_strategies):
+    # Usamos un expander para que el sidebar no se alargue demasiado
+    # CORRECCIÓN: Usamos `expanded=True` para que todos aparezcan abiertos por defecto.
+    with st.sidebar.expander(f"Estrategia {i+1}", expanded=True): 
+        
+        file = st.file_uploader(
+            f"Reporte Estrategia {i+1}", 
+            type=["csv", "txt"], 
+            key=f"file_{i}"
+        )
+        
+        cap = st.number_input(
+            f"Capital Inicial {i+1}", 
+            value=10000.0, 
+            min_value=0.0, 
+            step=1000.0, 
+            format="%.2f", 
+            key=f"cap_{i}"
+        )
+        
+        if file:
+            uploaded_files.append(file)
+            initial_caps.append(cap)
 
 # --- LÓGICA DE PROCESAMIENTO Y RENDERIZADO ---
 if not trades_file_a:
@@ -358,17 +376,5 @@ else:
                     ttrs_s = [next((i+1 for i, v in enumerate(path) if v >= initial_cap_a), np.nan) for path in sims_abs_st.T]
                     recovered_count_s = np.count_nonzero(~np.isnan(ttrs_s)); pct_recov_s = 100 * recovered_count_s / n_sims_st_s if n_sims_st_s > 0 else 0
                     med_ttr_s = np.nanmedian(ttrs_s) if recovered_count_s > 0 else 'N/A'; p90_ttr_s = np.nanpercentile(ttrs_s, 90) if recovered_count_s > 0 else 'N/A'
-                    st.subheader("📊 Estadísticas de Recuperación")
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("% Simulaciones Recuperadas", f"{pct_recov:.1f}%")
-                    c2.metric("Mediana Tiempo Recuperación (ops)", f"{med_ttr:.0f}" if isinstance(med_ttr, (int, float)) else med_ttr)
-                    c3.metric("P90 Tiempo Recuperación (ops)", f"{p90_ttr:.0f}" if isinstance(p90_ttr, (int, float)) else p90_ttr)
-        
-                    # Histograma de TTR
-                    st.subheader("📈 Histograma de Operaciones hasta Recuperación")
-                    fig_ttr = go.Figure()
-                    if recovered_count > 0:
-                        fig_ttr.add_trace(go.Histogram(x=ttrs[~np.isnan(ttrs)], nbinsx=50))
-                    fig_ttr.update_layout(xaxis_title="Operaciones hasta recuperar capital inicial", yaxis_title="Frecuencia")
-                    st.plotly_chart(fig_ttr, use_container_width=True)
-
+                    st.subheader("📊 Estadísticas de Recuperación"); c1, c2, c3 = st.columns(3); c1.metric("% Recuperadas", f"{pct_recov_s:.1f}%"); c2.metric("Mediana Recuperación (ops)", f"{med_ttr_s:.0f}" if isinstance(med_ttr_s, (int, float)) else med_ttr_s); c3.metric("P90 Recuperación (ops)", f"{p90_ttr_s:.0f}" if isinstance(p90_ttr_s, (int, float)) else p90_ttr_s)
+                    # ... (resto de gráficos para Stress Test)
