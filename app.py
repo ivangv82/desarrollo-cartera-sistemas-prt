@@ -385,27 +385,25 @@ with tabs[2]:
         )
 
         if st.button("▶️ Ejecutar MC Bloques", key="mc_block_run"):
-            # 1) Spinner: cálculos
             with st.spinner("Corriendo Monte Carlo por bloques..."):
                 arr = ret_a.values[np.isfinite(ret_a.values)]
                 horizon = len(arr)
 
-                # Ejecutamos block bootstrap
                 sims_rel_bb = run_block_bootstrap_monte_carlo(arr, n_sims_bb, block_size, horizon)
                 if sims_rel_bb is None:
                     st.error("Block size inválido (debe ser < número de operaciones).")
-                    return
+                    st.stop()
 
                 init = float(eq_a['Equity'].iloc[0])
                 sims_eq_bb = sims_rel_bb * init
 
-                # Percentiles de trayectoria
+                # percentiles
                 p10_bb = np.percentile(sims_eq_bb, 10, axis=1)
                 p50_bb = np.percentile(sims_eq_bb, 50, axis=1)
                 p90_bb = np.percentile(sims_eq_bb, 90, axis=1)
                 dates_bb = eq_a.index[1:]
 
-                # Estadísticas finales
+                # estadísticas finales
                 final_bb = sims_eq_bb[-1, :]
                 var95_bb  = np.percentile(final_bb, 5)
                 cvar95_bb = final_bb[final_bb <= var95_bb].mean()
@@ -418,7 +416,7 @@ with tabs[2]:
                     "CVaR 95%": cvar95_bb
                 }
 
-                # Drawdowns simulados
+                # drawdowns simulados
                 def compute_mdd(path):
                     full = np.insert(path, 0, init)
                     cm = np.maximum.accumulate(full)
@@ -427,7 +425,7 @@ with tabs[2]:
 
                 mdds_bb = np.array([compute_mdd(sims_eq_bb[:, i]) for i in range(n_sims_bb)])
 
-            # 2) Envelope plot
+            # Envelope plot
             fig_env_bb = go.Figure()
             fig_env_bb.add_trace(go.Scatter(
                 x=dates_bb, y=p90_bb, mode='lines',
@@ -453,13 +451,13 @@ with tabs[2]:
             )
             st.plotly_chart(fig_env_bb, use_container_width=True)
 
-            # 3) Métricas finales
+            # Métricas
             st.subheader("📈 Estadísticas del Capital Final (BB)")
             cols_bb = st.columns(len(stats_bb))
             for j, (label, val) in enumerate(stats_bb.items()):
                 cols_bb[j].metric(label, f"${val:,.2f}")
 
-            # 4) Histograma Capital Final
+            # Histograma Capital Final
             st.subheader("📊 Histograma Capital Final (BB)")
             fig_hist_bb = go.Figure()
             fig_hist_bb.add_trace(go.Histogram(x=final_bb, nbinsx=50))
@@ -477,7 +475,7 @@ with tabs[2]:
             )
             st.plotly_chart(fig_hist_bb, use_container_width=True)
 
-            # 5) Histograma Máx Drawdown
+            # Histograma Máx Drawdown
             st.subheader("📉 Histograma Máx Drawdown (%) (BB)")
             fig_dd_bb = go.Figure()
             fig_dd_bb.add_trace(go.Histogram(x=mdds_bb, nbinsx=50))
