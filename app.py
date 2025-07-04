@@ -18,16 +18,39 @@ st.markdown("Carga tu reporte de operaciones de ProRealTime y obtén métricas c
 # --- Función de carga con fallback de fechas ---
 @st.cache_data
 def load_prt_trades(file):
-    try:
-        file.seek(0)
-        df = pd.read_csv(file, sep='\t', decimal=',', thousands='.')
-        if df.shape[1] < 2:
-            file.seek(0)
-            df = pd.read_csv(file, sep=',', decimal='.', thousands=',')
-    except Exception:
-        file.seek(0)
-        df = pd.read_csv(file, sep=None, engine='python')
+    # Lista de codificaciones comunes a probar
+    encodings_to_try = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+    df = None
 
+    for encoding in encodings_to_try:
+        try:
+            # Es crucial volver al inicio del archivo en cada intento
+            file.seek(0)
+            
+            # Intento 1: Separador por tabulador (común en PRT español)
+            temp_df = pd.read_csv(file, sep='\t', decimal=',', thousands='.', encoding=encoding)
+            if temp_df.shape[1] > 1:
+                df = temp_df
+                # Si funciona, salimos del bucle
+                break
+
+            # Intento 2: Separador por coma
+            file.seek(0)
+            temp_df = pd.read_csv(file, sep=',', decimal='.', thousands=',', encoding=encoding)
+            if temp_df.shape[1] > 1:
+                df = temp_df
+                break
+        except Exception:
+            # Si hay cualquier error (de codificación u otro), probamos la siguiente
+            continue
+
+    # Si después de todos los intentos no se pudo leer, mostramos un error
+    if df is None:
+        st.error("Error al leer el archivo. Su formato o codificación no es compatible. "
+                 "Intenta guardarlo de nuevo desde tu programa (ej. Excel) como 'CSV (delimitado por comas)' con codificación 'UTF-8'.")
+        st.stop()
+
+    # --- El resto de la función sigue igual ---
     column_map = {
         'Fecha entrada': 'Entry Date', 'entry date': 'Entry Date',
         'Fecha salida': 'Exit Date', 'exit date': 'Exit Date',
