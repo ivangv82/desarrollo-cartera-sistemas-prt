@@ -6,11 +6,16 @@ from dateutil import parser
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
+############################################################################################
 # --- Configuración de página ---
+############################################################################################
+
 st.set_page_config(page_title="📊 Analizador de Backtests", layout="wide")
 st.title("🚀 Analizador de Estrategias PRT")
 
-# --- Funciones de Lógica ---
+############################################################################################
+# --- FUNCIONES DE LOGICA ---
+############################################################################################
 
 # --- carga datos ---
 @st.cache_data
@@ -130,26 +135,66 @@ def max_dd(equity_path):
     dd = (equity_path - cm) / cm
     return dd.min()
 
+############################################################################################
 # --- INICIALIZACIÓN DE ESTADO ---
+############################################################################################
+
 if 'compare_mode' not in st.session_state:
     st.session_state.compare_mode = False
 
 def activate_compare_mode():
     st.session_state.compare_mode = True
 
+############################################################################################
 # --- SIDEBAR DINÁMICO ---
-st.sidebar.header("📁 Carga de Datos")
-trades_file_a = st.sidebar.file_uploader("Reporte de Estrategia", type=["csv","txt"], key="file_a")
-initial_cap_a = st.sidebar.number_input("Capital Inicial", value=10000.0, min_value=0.0, step=1000.0, format="%.2f", key="cap_a")
+############################################################################################
 
-trades_file_b = None
-if st.session_state.compare_mode:
-    trades_file_b = st.sidebar.file_uploader("Reporte de Estrategia B", type=["csv","txt"], key="file_b")
-    initial_cap_b = st.sidebar.number_input("Capital Inicial B", value=10000.0, min_value=0.0, step=1000.0, format="%.2f", key="cap_b")
-else:
-    st.sidebar.button("➕ Comparar con otra Estrategia", on_click=activate_compare_mode, use_container_width=True)
+st.sidebar.header("📁 Carga de Estrategias")
 
+# 1. Un selector numérico para que elijas cuántas estrategias quieres analizar.
+num_strategies = st.sidebar.number_input(
+    "Número de estrategias a comparar", 
+    min_value=1, 
+    max_value=10, # Un límite razonable para no sobrecargar
+    value=1,      # Por defecto, empezamos con una
+    step=1
+)
+
+# 2. Listas vacías para guardar los datos de cada estrategia
+uploaded_files = []
+initial_caps = []
+
+st.sidebar.markdown("---")
+
+# 3. Un bucle que crea los campos de carga para el número de estrategias que hayas elegido
+for i in range(num_strategies):
+    # Usamos un expander para que la barra lateral no se alargue demasiado si pones muchas estrategias
+    with st.sidebar.expander(f"Estrategia {i+1}", expanded=i < 2): # Mantenemos abiertos los dos primeros por defecto
+        
+        file = st.file_uploader(
+            f"Reporte Estrategia {i+1}", 
+            type=["csv", "txt"], 
+            key=f"file_{i}" # Clave única para cada cargador de archivo
+        )
+        
+        cap = st.number_input(
+            f"Capital Inicial {i+1}", 
+            value=10000.0, 
+            min_value=0.0, 
+            step=1000.0, 
+            format="%.2f", 
+            key=f"cap_{i}" # Clave única para cada campo de capital
+        )
+        
+        # 4. Solo si se ha cargado un archivo, lo añadimos a nuestras listas para procesarlo después
+        if file:
+            uploaded_files.append(file)
+            initial_caps.append(cap)
+
+############################################################################################
 # --- PARAMETROS GLOBALES ---
+############################################################################################
+
 st.sidebar.header("⚙️ Parámetros Globales")
 timeframe = st.sidebar.selectbox("Timeframe de Velas", ["1mn","5mn","15mn","30mn","1h","4h","1d","1w","1mes"], index=6)
 if timeframe in ["1mn","5mn","15mn","30mn","1h","4h"]:
@@ -159,7 +204,9 @@ if timeframe in ["1mn","5mn","15mn","30mn","1h","4h"]:
 else: ppy = {"1d":252, "1w":52, "1mes":12}[timeframe]
 st.sidebar.caption(f"Periodos por año calculados: {int(ppy)}")
 
+############################################################################################
 # --- LÓGICA DE PROCESAMIENTO Y RENDERIZADO ---
+############################################################################################
 if not trades_file_a:
     st.info("Por favor, carga un archivo de estrategia para comenzar.")
     st.stop()
