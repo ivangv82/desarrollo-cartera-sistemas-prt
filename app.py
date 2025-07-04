@@ -385,13 +385,50 @@ else:
 
     # --- TEST DE STRESS --- #
     with tabs[5]:
-        st.header("⚠️ Stress Test")
+        st.header("⚠️ Stress Test (Recuperación tras un Shock)")
+        st.markdown("Simula la recuperación del capital tras una pérdida inicial súbita, medido en número de operaciones.")
+    
         cols_st = st.columns(3)
         shock_pct = cols_st[0].number_input("Shock inicial (%)", -99.0, -1.0, -20.0, 1.0, format="%.1f", key="s_st_shock") / 100.0
         horizon_ops = cols_st[1].number_input("Horizonte recuperación (ops)", 1, 10000, 252, 1, key="s_st_horizon")
         n_sims_st = cols_st[2].number_input("Nº Simulaciones", 100, 10000, 500, 100, key="s_st_sims")
-        if st.button("▶️ Ejecutar Stress Test", key="s_btn_st"):
-            with st.spinner("Corriendo stress tests..."):
-                shocked_cap = initial_cap_a * (1 + shock_pct)
-                # Aquí iría la lógica de simulación, gráficos y métricas del stress test...
-                st.success("Stress test completado.")
+    
+        if returns_a is None or returns_a.empty:
+            st.warning("No hay operaciones suficientes para ejecutar el stress test.")
+        else:
+            if st.button("▶️ Ejecutar Stress Test", key="s_btn_st"):
+                with st.spinner("Corriendo stress tests..."):
+                    shocked_cap = initial_cap_a * (1 + shock_pct)
+                    ret_arr = returns_a.values[np.isfinite(returns_a.values)]
+                    
+                    # Simulación
+                    sims_post_shock_rel = run_monte_carlo(ret_arr, n_sims_st, horizon_ops)
+                    sims_post_shock_abs = sims_post_shock_rel * shocked_cap
+    
+                    # Tiempo hasta recuperación (Time to Recovery - TTR)
+                    ttrs = []
+                    for i in range(n_sims_st):
+                        path = sims_post_shock_abs[:, i]
+                        rec_indices = np.where(path >= initial_cap_a)[0]
+                        ttrs.append(rec_indices[0] + 1 if rec_indices.size > 0 else np.nan)
+                    ttrs = np.array(ttrs)
+    
+                    # Métricas de recuperación
+                    recovered_count = np.count_nonzero(~np.isnan(ttrs))
+                    pct_recov = 100 * recovered_count / n_sims_st if n_sims_st > 0 else 0
+                    med_ttr = np.nanmedian(ttrs) if recovered_count > 0 else 'N/A'
+                    p90_ttr = np.nanpercentile(ttrs, 90) if recovered_count > 0 else 'N/A'
+    
+                st.subheader("📊 Estadísticas de Recuperación")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("% Simulaciones Recuperadas", f"{pct_recov:.1f}%")
+                c2.metric("Mediana Tiempo Recuperación (ops)", f"{med_ttr:.0f}" if isinstance(med_ttr, (int, float)) else med_ttr)
+                c3.metric("P90 Tiempo Recuperación (ops)", f"{p90_ttr:.0f}" if isinstance(p90_ttr, (int, float)) else p90_ttr)
+    
+                # Histograma de TTR
+                st.subheader("📈 Histograma de Operaciones hasta Recuperación")
+                fig_ttr = go.Figure()
+                if recovered_count > 0:
+                    fig_ttr.add_trace(go.Histogram(x=ttrs[~np.isnan(ttrs)], nbinsx=50))
+                fig_ttr.update_layout(xaxis_title="Operaciones hasta recuperar capital inicial", yaxis_title="Frecuencia")
+                st.plotly_chart(fig_ttr, use_container_width=True)
