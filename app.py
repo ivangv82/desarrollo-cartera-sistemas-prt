@@ -184,11 +184,10 @@ if st.session_state.compare_mode and trades_file_b:
             for col in df_display.columns: df_display[col] = [format_value(val, idx) for idx, val in df_comp[col].items()]
             st.dataframe(df_display, use_container_width=True)
         else: st.warning("No se pudieron calcular las métricas para una o ambas estrategias.")
-
+    # Draw down
     with tabs[1]:
         st.header("Curvas de Capital y Drawdowns")
         if equity_a is not None and equity_b is not None:
-            # Gráfico de Equity Normalizado
             st.subheader("Curvas de Capital (Normalizadas)")
             norm_equity_a = (equity_a['Equity'] / equity_a['Equity'].iloc[0]) * 100
             norm_equity_b = (equity_b['Equity'] / equity_b['Equity'].iloc[0]) * 100
@@ -197,23 +196,16 @@ if st.session_state.compare_mode and trades_file_b:
             fig_eq.add_trace(go.Scatter(x=norm_equity_b.index, y=norm_equity_b, mode='lines', name='Estrategia B', line=dict(color='darkorange')))
             fig_eq.update_layout(yaxis_title="Capital Normalizado (Base 100)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_eq, use_container_width=True)
-
             st.markdown("---")
             
-            # --- GRÁFICO DE DRAWDOWN COMBINADO (NUEVO) ---
-            st.subheader("Curvas de Drawdown (alineadas por operación)")
+            # --- GRÁFICO DE DRAWDOWN COMBINADO POR FECHA (CORREGIDO) ---
+            st.subheader("Curvas de Drawdown por Fecha")
             dd_pct_a = (equity_a['Equity'] - equity_a['Equity'].cummax()) / equity_a['Equity'].cummax() * 100
             dd_pct_b = (equity_b['Equity'] - equity_b['Equity'].cummax()) / equity_b['Equity'].cummax() * 100
-            
             fig_dd = go.Figure()
-            # Usamos el número de operación como eje X para una comparación directa
-            fig_dd.add_trace(go.Scatter(x=np.arange(len(dd_pct_a)), y=dd_pct_a.values, mode='lines', name='Drawdown A', line=dict(color='indianred')))
-            fig_dd.add_trace(go.Scatter(x=np.arange(len(dd_pct_b)), y=dd_pct_b.values, mode='lines', name='Drawdown B', line=dict(color='orange')))
-            fig_dd.update_layout(
-                yaxis_title="Drawdown (%)", 
-                xaxis_title="Número de Operación",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
+            fig_dd.add_trace(go.Scatter(x=dd_pct_a.index, y=dd_pct_a.values, mode='lines', name='Drawdown A', line=dict(color='indianred'), fill='tozeroy', opacity=0.7))
+            fig_dd.add_trace(go.Scatter(x=dd_pct_b.index, y=dd_pct_b.values, mode='lines', name='Drawdown B', line=dict(color='orange'), fill='tozeroy', opacity=0.7))
+            fig_dd.update_layout(yaxis_title="Drawdown (%)", xaxis_title="Fecha", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_dd, use_container_width=True)
 
     with tabs[2]:
