@@ -168,115 +168,126 @@ for i in range(num_strategies):
             initial_caps.append(cap)
 
 # --- LÓGICA DE PROCESAMIENTO Y RENDERIZADO ---
-if not trades_file_a:
-    st.info("Por favor, carga un archivo de estrategia para comenzar.")
+if not uploaded_files:
+    st.info("Por favor, carga al menos un archivo de estrategia para comenzar.")
     st.stop()
 
-trades_a = load_prt_trades(trades_file_a)
-equity_a, returns_a = compute_equity(trades_a, initial_cap_a)
-metrics_a = calculate_metrics(trades_a, equity_a, ppy, timeframe)
+strategies_data = []
+for i, file in enumerate(uploaded_files):
+    trades = load_prt_trades(file)
+    equity, returns = compute_equity(trades, initial_caps[i])
+    metrics = calculate_metrics(trades, equity, ppy, timeframe)
+    strategies_data.append({
+        "name": file.name,
+        "trades": trades,
+        "equity": equity,
+        "returns": returns,
+        "metrics": metrics,
+        "initial_cap": initial_caps[i]
+    })
 
-# --- MODO COMPARATIVO ---
-if st.session_state.compare_mode and trades_file_b:
-    st.markdown(f"### Comparativa: `{trades_file_a.name}` vs `{trades_file_b.name}`")
-    trades_b = load_prt_trades(trades_file_b)
-    equity_b, returns_b = compute_equity(trades_b, initial_cap_b)
-    metrics_b = calculate_metrics(trades_b, equity_b, ppy, timeframe)
+# --- RENDERIZADO DE PESTAÑAS ---
+st.header("Resultados del Análisis")
+tabs = st.tabs(["📊 Resumen", "📈 Curvas", "📝 Operaciones", "🎲 Análisis Avanzado"])
+
+with tabs[0]:
+    st.subheader("Resumen Comparativo de Métricas")
+    metric_series_list = [pd.Series(s["metrics"], name=s["name"].split('.')[0]) for s in strategies_data if s["metrics"]]
+    if metric_series_list:
+        df_comp = pd.concat(metric_series_list, axis=1)
+        def format_value(val, key):
+            if pd.isna(val): return "-"
+            if key in ["Beneficio Total", "Max Drawdown $"]: return f"${val:,.2f}"
+            if key in ["Crecimiento Capital", "CAGR", "Max Drawdown %", "% Ganadoras", "Retorno Medio/Op. (%)"]: return f"{val:.2%}"
+            if key in ["Total Operaciones"]: return f"{int(val)}"
+            return f"{val:.2f}"
+        df_display = df_comp.copy()
+        for col in df_display.columns: df_display[col] = [format_value(val, idx) for idx, val in df_comp[col].items()]
+        st.dataframe(df_display, use_container_width=True)
+    else:
+        st.warning("No se pudieron calcular métricas para ninguna estrategia.")
+
+with tabs[1]:
+    st.subheader("Curvas de Capital (Normalizadas)")
+    fig_eq = go.Figure()
+    colors = ['royalblue', 'darkorange', 'green', 'indianred', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+    for i, s_data in enumerate(strategies_data):
+        if s_data["equity"] is not None:
+            norm_equity = (s_data["equity"]['Equity'] / s_data["equity"]['Equity'].iloc[0]) * 100
+            fig_eq.add_trace(go.Scatter(x=norm_equity.index, y=norm_equity, mode='lines', name=s_data["name"].split('.')[0], line=dict(color=colors[i % len(colors)])))
+    fig_eq.update_layout(title="Comparativa de Curvas de Capital", yaxis_title="Capital Normalizado (Base 100)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    st.plotly_chart(fig_eq, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Curvas de Drawdown por Fecha")
+    fig_dd = go.Figure()
+    for i, s_data in enumerate(strategies_data):
+        if s_data["equity"] is not None:
+            equity_curve = s_data["equity"]['Equity']
+            dd_pct = (equity_curve - equity_curve.cummax()) / equity_curve.cummax() * 100
+            fig_dd.add_trace(go.Scatter(x=dd_pct.index, y=dd_pct.values, mode='lines', name=s_data["name"].split('.')[0], line=dict(color=colors[i % len(colors)]), fill='tozeroy', opacity=0.6))
+    fig_dd.update_layout(title="Comparativa de Curvas de Drawdown", yaxis_title="Drawdown (%)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    st.plotly_chart(fig_dd, use_container_width=True)
+
+with tabs[2]:
+    st.subheader("Detalle de Operaciones")
+    for s_data in strategies_data:
+        with st.expander(f"Ver operaciones de: {s_data['name']}"):
+            st.dataframe(s_data["trades"])
+
+with tabs[3]:
+    st.header("🎲 Análisis Avanzado Individual")
+    strategy_names = [s["name"] for s in strategies_data]
+    if not strategy_names:
+        st.warning("No hay estrategias cargadas para analizar.")
+        st.stop()
+        
+    choice = st.selectbox("Elige la estrategia para analizar:", strategy_names, key="adv_choice")
     
-    tabs = st.tabs(["📊 Resumen", "📈 Curvas", "📝 Operaciones", "🎲 Análisis Avanzado"])
-    
-    with tabs[0]:
-        st.header("Resumen Comparativo de Métricas")
-        if metrics_a and metrics_b:
-            df_a = pd.Series(metrics_a, name=f"A: {trades_file_a.name}"); df_b = pd.Series(metrics_b, name=f"B: {trades_file_b.name}")
-            df_comp = pd.concat([df_a, df_b], axis=1)
-            def format_value(val, key):
-                if pd.isna(val): return "-"
-                if key in ["Beneficio Total", "Max Drawdown $"]: return f"${val:,.2f}"
-                if key in ["Crecimiento Capital", "CAGR", "Max Drawdown %", "% Ganadoras", "Retorno Medio/Op. (%)"]: return f"{val:.2%}"
-                if key in ["Total Operaciones"]: return f"{int(val)}"
-                return f"{val:.2f}"
-            df_display = df_comp.copy()
-            for col in df_display.columns: df_display[col] = [format_value(val, idx) for idx, val in df_comp[col].items()]
-            st.dataframe(df_display, use_container_width=True)
-        else: st.warning("No se pudieron calcular las métricas para una o ambas estrategias.")
+    selected_data = next((s for s in strategies_data if s["name"] == choice), None)
 
-    with tabs[1]:
-        st.header("Curvas de Capital y Drawdowns")
-        if equity_a is not None and equity_b is not None:
-            st.subheader("Curvas de Capital (Normalizadas)")
-            norm_equity_a = (equity_a['Equity'] / equity_a['Equity'].iloc[0]) * 100
-            norm_equity_b = (equity_b['Equity'] / equity_b['Equity'].iloc[0]) * 100
-            fig_eq = go.Figure()
-            fig_eq.add_trace(go.Scatter(x=norm_equity_a.index, y=norm_equity_a, mode='lines', name=f"A: {trades_file_a.name}", line=dict(color='royalblue')))
-            fig_eq.add_trace(go.Scatter(x=norm_equity_b.index, y=norm_equity_b, mode='lines', name=f"B: {trades_file_b.name}", line=dict(color='darkorange')))
-            fig_eq.update_layout(yaxis_title="Capital Normalizado (Base 100)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig_eq, use_container_width=True)
-            st.markdown("---")
-            
-            st.subheader("Curvas de Drawdown por Fecha")
-            dd_pct_a = (equity_a['Equity'] - equity_a['Equity'].cummax()) / equity_a['Equity'].cummax() * 100
-            dd_pct_b = (equity_b['Equity'] - equity_b['Equity'].cummax()) / equity_b['Equity'].cummax() * 100
-            fig_dd = go.Figure()
-            fig_dd.add_trace(go.Scatter(x=dd_pct_a.index, y=dd_pct_a.values, mode='lines', name=f"Drawdown A", line=dict(color='indianred'), fill='tozeroy', opacity=0.7))
-            fig_dd.add_trace(go.Scatter(x=dd_pct_b.index, y=dd_pct_b.values, mode='lines', name=f"Drawdown B", line=dict(color='orange'), fill='tozeroy', opacity=0.7))
-            fig_dd.update_layout(yaxis_title="Drawdown (%)", xaxis_title="Fecha", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            st.plotly_chart(fig_dd, use_container_width=True)
-
-    with tabs[2]:
-        st.header("Detalle de Operaciones")
-        with st.expander(f"Ver operaciones de Estrategia A: {trades_file_a.name}"): st.dataframe(trades_a)
-        with st.expander(f"Ver operaciones de Estrategia B: {trades_file_b.name}"): st.dataframe(trades_b)
-    
-    with tabs[3]:
-        st.header("🎲 Análisis Avanzado")
-        strategy_choice = st.selectbox("Elige la estrategia para analizar en detalle:", (f"Estrategia A: {trades_file_a.name}", f"Estrategia B: {trades_file_b.name}"), key="adv_choice_comp")
-
-        if "Estrategia A" in strategy_choice:
-            active_returns, active_equity, active_cap, active_name = returns_a, equity_a, initial_cap_a, "Estrategia A"
-        else:
-            active_returns, active_equity, active_cap, active_name = returns_b, equity_b, initial_cap_b, "Estrategia B"
-
-        st.info(f"Mostrando análisis avanzado para **{active_name}**.")
+    if selected_data:
+        active_returns = selected_data["returns"]
+        active_equity = selected_data["equity"]
+        active_cap = selected_data["initial_cap"]
+        active_name = selected_data["name"]
 
         if active_returns is None or active_returns.empty:
-            st.warning(f"No hay datos de operaciones suficientes para realizar el análisis en {active_name}.")
+            st.warning(f"No hay datos de operaciones suficientes para realizar el análisis en '{active_name}'.")
         else:
             with st.expander("1. Simulación Monte Carlo (Bootstrap Simple)", expanded=True):
-                n_sims_simple = st.number_input("Número de simulaciones", 100, 10000, 1000, 100, key="c_mc_simple_sims")
-                if st.button("▶️ Ejecutar MC Simple", key="c_btn_mc_simple"):
+                n_sims = st.number_input("Número de simulaciones", 100, 10000, 1000, 100, key=f"n_sims_simple_{active_name}")
+                if st.button("▶️ Ejecutar MC Simple", key=f"btn_simple_{active_name}"):
                     with st.spinner(f"Corriendo MC Simple para {active_name}..."):
-                        sims_rel = run_monte_carlo(active_returns.values, n_sims_simple, len(active_returns))
+                        sims_rel = run_monte_carlo(active_returns.values, n_sims, len(active_returns))
                         sims_eq = sims_rel * active_cap
-                        final_vals = sims_eq[-1, :]
-                        stats = {"Media": final_vals.mean(), "Mediana": np.median(final_vals), "VaR 95%": np.percentile(final_vals, 5)}
+                        final_vals = sims_eq[-1, :]; stats = {"Media": final_vals.mean(), "Mediana": np.median(final_vals), "VaR 95%": np.percentile(final_vals, 5)}
                         mdds = np.apply_along_axis(max_dd, 0, sims_eq) * 100
-                        st.subheader("Resultados MC Simple"); st_cols = st.columns(len(stats));
+                        st.subheader("Resultados MC Simple"); st_cols = st.columns(len(stats))
                         for idx, (lbl, val) in enumerate(stats.items()): st_cols[idx].metric(lbl, f"${val:,.2f}")
-                        fig1 = go.Figure(go.Histogram(x=final_vals, nbinsx=50)); fig1.update_layout(title="Histograma Capital Final"); st.plotly_chart(fig1, use_container_width=True)
-                        fig2 = go.Figure(go.Histogram(x=mdds, nbinsx=50)); fig2.update_layout(title="Histograma Max Drawdown (%)"); st.plotly_chart(fig2, use_container_width=True)
+                        fig1 = go.Figure(go.Histogram(x=final_vals, nbinsx=50)); fig1.update_layout(title="Histograma de Capital Final", showlegend=False); st.plotly_chart(fig1, use_container_width=True)
+                        fig2 = go.Figure(go.Histogram(x=mdds, nbinsx=50)); fig2.update_layout(title="Histograma Max Drawdown (%)", showlegend=False); st.plotly_chart(fig2, use_container_width=True)
 
             with st.expander("2. Simulación Monte Carlo (Block Bootstrap)"):
                 cols_bb = st.columns(2)
-                block_size = cols_bb[0].number_input("Tamaño de bloque", 1, 100, 5, 1, key="c_mc_block_size")
-                n_sims_bb = cols_bb[1].number_input("Nº Simulaciones", 100, 10000, 1000, 100, key="c_mc_block_sims")
-                if st.button("▶️ Ejecutar MC por Bloques", key="c_btn_mc_block"):
+                block_size = cols_bb[0].number_input("Tamaño de bloque", 1, 100, 5, 1, key=f"block_size_{active_name}")
+                n_sims_bb = cols_bb[1].number_input("Nº Simulaciones", 100, 10000, 1000, 100, key=f"n_sims_bb_{active_name}")
+                if st.button("▶️ Ejecutar MC por Bloques", key=f"btn_bb_{active_name}"):
                     with st.spinner(f"Corriendo MC por Bloques para {active_name}..."):
                         sims_rel_bb = run_block_bootstrap_monte_carlo(active_returns.values, n_sims_bb, block_size, len(active_returns))
                         if sims_rel_bb is None: st.error("Error: Tamaño de bloque inválido.")
                         else:
-                            sims_eq_bb = sims_rel_bb * active_cap; final_vals_bb = sims_eq_bb[-1, :]
-                            stats_bb = {"Media": final_vals_bb.mean(), "Mediana": np.median(final_vals_bb), "VaR 95%": np.percentile(final_vals_bb, 5)}
+                            sims_eq_bb = sims_rel_bb * active_cap; final_vals_bb = sims_eq_bb[-1, :]; stats_bb = {"Media": final_vals_bb.mean(), "Mediana": np.median(final_vals_bb), "VaR 95%": np.percentile(final_vals_bb, 5)}
                             st.subheader("Resultados MC por Bloques"); st_cols_bb = st.columns(len(stats_bb))
                             for idx, (lbl, val) in enumerate(stats_bb.items()): st_cols_bb[idx].metric(lbl, f"${val:,.2f}")
-                            fig_bb = go.Figure(go.Histogram(x=final_vals_bb, nbinsx=50)); fig_bb.update_layout(title="Histograma Capital Final (Bloques)"); st.plotly_chart(fig_bb, use_container_width=True)
-
+                            fig_hist_bb = go.Figure(go.Histogram(x=final_vals_bb, nbinsx=50)); fig_hist_bb.update_layout(title="Histograma de Capital Final (Bloques)", showlegend=False); st.plotly_chart(fig_hist_bb, use_container_width=True)
+            
             with st.expander("3. Stress Test de Recuperación"):
                 cols_st = st.columns(3)
-                shock_pct = cols_st[0].number_input("Shock inicial (%)", -99.0, -1.0, -20.0, 1.0, format="%.1f", key="c_st_shock") / 100.0
-                horizon_ops = cols_st[1].number_input("Horizonte recuperación (ops)", 1, 10000, 252, 1, key="c_st_horizon")
-                n_sims_st = cols_st[2].number_input("Nº Simulaciones", 100, 10000, 500, 100, key="c_st_sims")
-                if st.button("▶️ Ejecutar Stress Test", key="c_btn_st"):
+                shock_pct = cols_st[0].number_input("Shock inicial (%)", -99.0, -1.0, -20.0, 1.0, format="%.1f", key=f"shock_{active_name}") / 100.0
+                horizon_ops = cols_st[1].number_input("Horizonte recuperación (ops)", 1, 10000, 252, 1, key=f"horizon_{active_name}")
+                n_sims_st = cols_st[2].number_input("Nº Simulaciones", 100, 10000, 500, 100, key=f"n_sims_st_{active_name}")
+                if st.button("▶️ Ejecutar Stress Test", key=f"btn_st_{active_name}"):
                     with st.spinner(f"Corriendo Stress Test para {active_name}..."):
                         shocked_cap = active_cap * (1 + shock_pct); ret_arr = active_returns.values[np.isfinite(active_returns.values)]
                         sims_post_shock_rel = run_monte_carlo(ret_arr, n_sims_st, horizon_ops); sims_post_shock_abs = sims_post_shock_rel * shocked_cap
@@ -285,96 +296,8 @@ if st.session_state.compare_mode and trades_file_b:
                         med_ttr = np.nanmedian(ttrs) if recovered_count > 0 else 'N/A'
                         st.subheader("Resultados Stress Test"); c1, c2 = st.columns(2)
                         c1.metric("% Recuperadas", f"{pct_recov:.1f}%"); c2.metric("Mediana Recuperación (ops)", f"{med_ttr:.0f}" if isinstance(med_ttr, (int, float)) else med_ttr)
-                        fig_ttr = go.Figure();
+                        fig_ttr = go.Figure()
                         if recovered_count > 0: fig_ttr.add_trace(go.Histogram(x=[t for t in ttrs if pd.notna(t)], nbinsx=50))
-                        fig_ttr.update_layout(title="Histograma de Operaciones hasta Recuperación"); st.plotly_chart(fig_ttr, use_container_width=True)
-
-# --- MODO ANÁLISIS INDIVIDUAL ---
-else:
-    st.markdown(f"### Análisis Individual: `{trades_file_a.name}`")
-    tabs = st.tabs(["📊 Resumen", "📈 Equity & DD", "📝 Operaciones", "🎲 MC Simple", "🎲 MC Bloques", "⚠️ Stress Test"])
-
-    with tabs[0]:
-        st.header("Resumen de Métricas")
-        if not metrics_a: st.warning("No se pudieron calcular las métricas.")
-        else:
-            cols = st.columns(4)
-            metric_order = ["Beneficio Total", "Crecimiento Capital", "CAGR", "Sharpe Ratio", "Max Drawdown $", "Max Drawdown %", "Recovery Factor", "Calmar Ratio", "Total Operaciones", "% Ganadoras", "Factor de Beneficio", "Ratio Payoff", "Retorno Medio/Op. (%)", "Duración Media (velas)"]
-            for i, key in enumerate(metric_order):
-                if key not in metrics_a: continue
-                val = metrics_a[key]
-                if key in ["Beneficio Total", "Max Drawdown $"]: disp = f"${val:,.2f}"
-                elif key in ["Crecimiento Capital", "CAGR", "Max Drawdown %", "% Ganadoras", "Retorno Medio/Op. (%)"]: disp = f"{val*100:.2f}%"
-                elif np.isinf(val): disp = "∞"
-                elif isinstance(val, (int, float)): disp = f"{val:.2f}"
-                else: disp = str(val)
-                cols[i%4].metric(label=key, value=disp)
-    
-    with tabs[1]:
-        st.header("Curva de Equity y Drawdown")
-        if equity_a is not None:
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.7,0.3], subplot_titles=("Curva de Equity","Drawdown (%)"))
-            fig.add_trace(go.Scatter(x=equity_a.index, y=equity_a['Equity'], mode='lines', name='Equity', line=dict(color='royalblue')), row=1, col=1)
-            dd_pct = (equity_a['Equity'] - equity_a['Equity'].cummax()) / equity_a['Equity'].cummax() * 100
-            fig.add_trace(go.Scatter(x=dd_pct.index, y=dd_pct.values, fill='tozeroy', mode='lines', name='Drawdown', line=dict(color='indianred')), row=2, col=1)
-            fig.update_layout(height=500, showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
-
-    with tabs[2]:
-        st.header("Detalle de Operaciones")
-        st.dataframe(trades_a)
-
-    with tabs[3]:
-        st.header("🎲 Simulación Monte Carlo (Bootstrap Simple)")
-        n_sims_s = st.number_input("Número de simulaciones", 100, 10000, 1000, 100, key="s_mc_simple_sims")
-        if returns_a is None or returns_a.empty: st.warning("No hay operaciones suficientes.")
-        else:
-            horizon_s = len(returns_a)
-            if st.button("▶️ Ejecutar MC Simple", key="s_btn_mc_simple"):
-                with st.spinner("Corriendo simulaciones..."):
-                    sims_rel_s = run_monte_carlo(returns_a.values, n_sims_s, horizon_s); sims_eq_s = sims_rel_s * initial_cap_a
-                    final_vals_s = sims_eq_s[-1, :]; stats_s = {"Media": final_vals_s.mean(), "Mediana": np.median(final_vals_s), "P10": np.percentile(final_vals_s, 10), "P90": np.percentile(final_vals_s, 90), "VaR 95%": np.percentile(final_vals_s, 5), "CVaR 95%": final_vals_s[final_vals_s <= np.percentile(final_vals_s, 5)].mean()}; mdds_s = np.apply_along_axis(max_dd, 0, sims_eq_s) * 100
-                    st.subheader("📈 Estadísticas del Capital Final"); stat_cols_s = st.columns(len(stats_s))
-                    for idx, (label, value) in enumerate(stats_s.items()): stat_cols_s[idx].metric(label, f"${value:,.2f}")
-                    sim_plot_dates_s = equity_a.index[1:]; fig_env_s = go.Figure()
-                    fig_env_s.add_trace(go.Scatter(x=sim_plot_dates_s, y=np.percentile(sims_eq_s, 95, axis=1), fill=None, mode='lines', line_color='lightgrey', showlegend=False)); fig_env_s.add_trace(go.Scatter(x=sim_plot_dates_s, y=np.percentile(sims_eq_s, 5, axis=1), fill='tonexty', mode='lines', line_color='lightgrey', name='5%-95%'))
-                    fig_env_s.add_trace(go.Scatter(x=sim_plot_dates_s, y=np.percentile(sims_eq_s, 50, axis=1), mode='lines', name='Mediana', line=dict(color='orange', dash='dash'))); fig_env_s.add_trace(go.Scatter(x=equity_a.index, y=equity_a['Equity'], mode='lines', name='Histórico', line=dict(color='blue', width=3)))
-                    fig_env_s.update_layout(title="Simulaciones vs. Curva Histórica", xaxis_title='Fecha', yaxis_title='Capital'); st.plotly_chart(fig_env_s, use_container_width=True)
-                    st.subheader("📊 Histograma Capital Final"); hist1_s = go.Figure(go.Histogram(x=final_vals_s, nbinsx=50)); hist1_s.add_vline(x=stats_s["Media"], line_dash="dash", annotation_text="Media", line_color="black"); hist1_s.add_vline(x=stats_s["Mediana"], line_dash="dash", annotation_text="Mediana", line_color="orange"); hist1_s.add_vline(x=stats_s["VaR 95%"], line_dash="dot", annotation_text="VaR 95%", line_color="red"); hist1_s.update_layout(showlegend=False); st.plotly_chart(hist1_s, use_container_width=True)
-                    st.subheader("📉 Histograma de Max Drawdown (%)"); hist2_s = go.Figure(go.Histogram(x=mdds_s, nbinsx=50)); hist2_s.add_vline(x=np.median(mdds_s), line_dash="dash", annotation_text="Mediana", line_color="orange"); hist2_s.add_vline(x=np.percentile(mdds_s, 5), line_dash="dot", annotation_text="P95 (peor 5%)", line_color="red"); hist2_s.update_layout(showlegend=False); st.plotly_chart(hist2_s, use_container_width=True)
-
-    with tabs[4]:
-        st.header("🎲 Simulación Monte Carlo (Block Bootstrap)")
-        cols_bb_s = st.columns(2)
-        block_size_s = cols_bb_s[0].number_input("Tamaño de bloque", 1, 100, 5, 1, key="s_mc_block_size")
-        n_sims_bb_s = cols_bb_s[1].number_input("Nº Simulaciones", 100, 10000, 1000, 100, key="s_mc_block_sims")
-        if returns_a is None or returns_a.empty: st.warning("No hay operaciones suficientes.")
-        else:
-            horizon_bb_s = len(returns_a)
-            if st.button("▶️ Ejecutar MC por Bloques", key="s_btn_mc_block"):
-                with st.spinner("Corriendo simulaciones con bloques..."):
-                    sims_rel_bb_s = run_block_bootstrap_monte_carlo(returns_a.values, n_sims_bb_s, block_size_s, horizon_bb_s)
-                    if sims_rel_bb_s is None: st.error("Error: Tamaño de bloque inválido.")
-                    else:
-                        sims_eq_bb_s = sims_rel_bb_s * initial_cap_a; final_vals_bb_s = sims_eq_bb_s[-1, :]; stats_bb_s = {"Media": final_vals_bb_s.mean(), "Mediana": np.median(final_vals_bb_s), "P10": np.percentile(final_vals_bb_s, 10), "P90": np.percentile(final_vals_bb_s, 90), "VaR 95%": np.percentile(final_vals_bb_s, 5), "CVaR 95%": final_vals_bb_s[final_vals_bb_s <= np.percentile(final_vals_bb_s, 5)].mean()}; mdds_bb_s = np.apply_along_axis(max_dd, 0, sims_eq_bb_s) * 100
-                        st.subheader("📈 Estadísticas del Capital Final (Block Bootstrap)"); stat_cols_bb_s = st.columns(len(stats_bb_s)); 
-                        for idx, (lbl, val) in enumerate(stats_bb_s.items()): stat_cols_bb_s[idx].metric(lbl, f"${val:,.2f}")
-                        # ... (resto de gráficos para MC Bloques)
-
-    with tabs[5]:
-        st.header("⚠️ Stress Test")
-        cols_st_s = st.columns(3)
-        shock_pct_s = cols_st_s[0].number_input("Shock inicial (%)", -99.0, -1.0, -20.0, 1.0, format="%.1f", key="s_st_shock") / 100.0
-        horizon_ops_s = cols_st_s[1].number_input("Horizonte recuperación (ops)", 1, 10000, 252, 1, key="s_st_horizon")
-        n_sims_st_s = cols_st_s[2].number_input("Nº Simulaciones", 100, 10000, 500, 100, key="s_st_sims")
-        if returns_a is None or returns_a.empty: st.warning("No hay operaciones suficientes.")
-        else:
-            if st.button("▶️ Ejecutar Stress Test", key="s_btn_st"):
-                with st.spinner("Corriendo stress tests..."):
-                    shocked_cap_s = initial_cap_a * (1 + shock_pct_s); ret_arr_s = returns_a.values[np.isfinite(returns_a.values)]
-                    sims_rel_st = run_monte_carlo(ret_arr_s, n_sims_st_s, horizon_ops_s); sims_abs_st = sims_rel_st * shocked_cap_s
-                    ttrs_s = [next((i+1 for i, v in enumerate(path) if v >= initial_cap_a), np.nan) for path in sims_abs_st.T]
-                    recovered_count_s = np.count_nonzero(~np.isnan(ttrs_s)); pct_recov_s = 100 * recovered_count_s / n_sims_st_s if n_sims_st_s > 0 else 0
-                    med_ttr_s = np.nanmedian(ttrs_s) if recovered_count_s > 0 else 'N/A'; p90_ttr_s = np.nanpercentile(ttrs_s, 90) if recovered_count_s > 0 else 'N/A'
-                    st.subheader("📊 Estadísticas de Recuperación"); c1, c2, c3 = st.columns(3); c1.metric("% Recuperadas", f"{pct_recov_s:.1f}%"); c2.metric("Mediana Recuperación (ops)", f"{med_ttr_s:.0f}" if isinstance(med_ttr_s, (int, float)) else med_ttr_s); c3.metric("P90 Recuperación (ops)", f"{p90_ttr_s:.0f}" if isinstance(p90_ttr_s, (int, float)) else p90_ttr_s)
-                    # ... (resto de gráficos para Stress Test)
+                        fig_ttr.update_layout(title="Histograma de Operaciones hasta Recuperación", showlegend=False); st.plotly_chart(fig_ttr, use_container_width=True)
+    else:
+        st.warning("No se encontraron datos para la estrategia seleccionada.")
