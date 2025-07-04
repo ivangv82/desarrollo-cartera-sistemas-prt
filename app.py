@@ -167,81 +167,81 @@ for i, file in enumerate(uploaded_files):
 st.header("Resultados del Análisis")
 tabs = st.tabs(["📊 Resumen", "📈 Curvas", "📝 Operaciones", "🎲 Análisis Avanzado"])
 
-with tabs[0]:
-    st.subheader("Resumen Comparativo de Métricas")
-    metric_series_list = [pd.Series(s["metrics"], name=s["name"]) for s in strategies_data if s["metrics"]]
-    if metric_series_list:
-        df_comp = pd.concat(metric_series_list, axis=1)
-        def format_value(val, key):
-            if pd.isna(val): return "-"
-            if key in ["Beneficio Total", "Max Drawdown $"]: return f"${val:,.2f}"
-            if key in ["Crecimiento Capital", "CAGR", "Max Drawdown %", "% Ganadoras", "Retorno Medio/Op. (%)"]: return f"{val:.2%}"
-            if key in ["Total Operaciones"]: return f"{int(val)}"
-            return f"{val:.2f}"
-        df_display = df_comp.copy()
-        for col in df_display.columns: df_display[col] = [format_value(val, idx) for idx, val in df_comp[col].items()]
-        st.dataframe(df_display, use_container_width=True)
-    else:
-        st.warning("No se pudieron calcular métricas para ninguna estrategia.")
-
-with tabs[1]:
-    st.subheader("Curvas de Capital (Normalizadas)")
-    fig_eq = go.Figure()
-    colors = ['royalblue', 'darkorange', 'green', 'indianred', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
-    for i, s_data in enumerate(strategies_data):
-        if s_data["equity"] is not None:
-            norm_equity = (s_data["equity"]['Equity'] / s_data["equity"]['Equity'].iloc[0]) * 100
-            fig_eq.add_trace(go.Scatter(x=norm_equity.index, y=norm_equity, mode='lines', name=s_data["name"], line=dict(color=colors[i % len(colors)])))
-    fig_eq.update_layout(title="Comparativa de Curvas de Capital", yaxis_title="Capital Normalizado (Base 100)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-    st.plotly_chart(fig_eq, use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("Curvas de Drawdown por Fecha")
-    fig_dd = go.Figure()
-    for i, s_data in enumerate(strategies_data):
-        if s_data["equity"] is not None:
-            equity_curve = s_data["equity"]['Equity']
-            dd_pct = (equity_curve - equity_curve.cummax()) / equity_curve.cummax() * 100
-            fig_dd.add_trace(go.Scatter(x=dd_pct.index, y=dd_pct.values, mode='lines', name=s_data["name"], line=dict(color=colors[i % len(colors)]), fill='tozeroy', opacity=0.7))
-    fig_dd.update_layout(title="Comparativa de Curvas de Drawdown", yaxis_title="Drawdown (%)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-    st.plotly_chart(fig_dd, use_container_width=True)
-
-with tabs[2]:
-    st.subheader("Detalle de Operaciones")
-    for s_data in strategies_data:
-        with st.expander(f"Ver operaciones de: {s_data['name']}"):
-            st.dataframe(s_data["trades"])
-
-with tabs[3]:
-    st.header("🎲 Análisis Avanzado Individual")
-    strategy_names = [s["name"] for s in strategies_data]
-    choice = st.selectbox("Elige la estrategia para analizar:", strategy_names, key="adv_choice")
-    
-    selected_data = next((s for s in strategies_data if s["name"] == choice), None)
-
-    if selected_data:
-        active_returns = selected_data["returns"]
-        active_equity = selected_data["equity"]
-        active_cap = selected_data["initial_cap"]
-        active_name = selected_data["name"]
-
-        if active_returns is None or active_returns.empty:
-            st.warning(f"No hay datos de operaciones suficientes para realizar el análisis en '{active_name}'.")
+    with tabs[0]:
+        st.subheader("Resumen Comparativo de Métricas")
+        metric_series_list = [pd.Series(s["metrics"], name=s["name"]) for s in strategies_data if s["metrics"]]
+        if metric_series_list:
+            df_comp = pd.concat(metric_series_list, axis=1)
+            def format_value(val, key):
+                if pd.isna(val): return "-"
+                if key in ["Beneficio Total", "Max Drawdown $"]: return f"${val:,.2f}"
+                if key in ["Crecimiento Capital", "CAGR", "Max Drawdown %", "% Ganadoras", "Retorno Medio/Op. (%)"]: return f"{val:.2%}"
+                if key in ["Total Operaciones"]: return f"{int(val)}"
+                return f"{val:.2f}"
+            df_display = df_comp.copy()
+            for col in df_display.columns: df_display[col] = [format_value(val, idx) for idx, val in df_comp[col].items()]
+            st.dataframe(df_display, use_container_width=True)
         else:
-            with st.expander("1. Simulación Monte Carlo (Bootstrap Simple)", expanded=True):
-                n_sims = st.number_input("Número de simulaciones", 100, 10000, 1000, 100, key=f"mc_simple_sims_{active_name}")
-                horizon = len(active_returns)
-                if st.button("▶️ Ejecutar MC Simple", key=f"btn_mc_simple_{active_name}"):
-                    # ... (resto de la lógica)
+            st.warning("No se pudieron calcular métricas para ninguna estrategia.")
+    
+    with tabs[1]:
+        st.subheader("Curvas de Capital (Normalizadas)")
+        fig_eq = go.Figure()
+        colors = ['royalblue', 'darkorange', 'green', 'indianred', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+        for i, s_data in enumerate(strategies_data):
+            if s_data["equity"] is not None:
+                norm_equity = (s_data["equity"]['Equity'] / s_data["equity"]['Equity'].iloc[0]) * 100
+                fig_eq.add_trace(go.Scatter(x=norm_equity.index, y=norm_equity, mode='lines', name=s_data["name"], line=dict(color=colors[i % len(colors)])))
+        fig_eq.update_layout(title="Comparativa de Curvas de Capital", yaxis_title="Capital Normalizado (Base 100)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        st.plotly_chart(fig_eq, use_container_width=True)
+    
+        st.markdown("---")
+        st.subheader("Curvas de Drawdown por Fecha")
+        fig_dd = go.Figure()
+        for i, s_data in enumerate(strategies_data):
+            if s_data["equity"] is not None:
+                equity_curve = s_data["equity"]['Equity']
+                dd_pct = (equity_curve - equity_curve.cummax()) / equity_curve.cummax() * 100
+                fig_dd.add_trace(go.Scatter(x=dd_pct.index, y=dd_pct.values, mode='lines', name=s_data["name"], line=dict(color=colors[i % len(colors)]), fill='tozeroy', opacity=0.7))
+        fig_dd.update_layout(title="Comparativa de Curvas de Drawdown", yaxis_title="Drawdown (%)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        st.plotly_chart(fig_dd, use_container_width=True)
+    
+    with tabs[2]:
+        st.subheader("Detalle de Operaciones")
+        for s_data in strategies_data:
+            with st.expander(f"Ver operaciones de: {s_data['name']}"):
+                st.dataframe(s_data["trades"])
+    
+    with tabs[3]:
+        st.header("🎲 Análisis Avanzado Individual")
+        strategy_names = [s["name"] for s in strategies_data]
+        choice = st.selectbox("Elige la estrategia para analizar:", strategy_names, key="adv_choice")
+        
+        selected_data = next((s for s in strategies_data if s["name"] == choice), None)
+    
+        if selected_data:
+            active_returns = selected_data["returns"]
+            active_equity = selected_data["equity"]
+            active_cap = selected_data["initial_cap"]
+            active_name = selected_data["name"]
+    
+            if active_returns is None or active_returns.empty:
+                st.warning(f"No hay datos de operaciones suficientes para realizar el análisis en '{active_name}'.")
+            else:
+                with st.expander("1. Simulación Monte Carlo (Bootstrap Simple)", expanded=True):
+                    n_sims = st.number_input("Número de simulaciones", 100, 10000, 1000, 100, key=f"mc_simple_sims_{active_name}")
+                    horizon = len(active_returns)
+                    if st.button("▶️ Ejecutar MC Simple", key=f"btn_mc_simple_{active_name}"):
+                        # ... (resto de la lógica)
+                        pass
+                with st.expander("2. Simulación Monte Carlo (Block Bootstrap)"):
+                    # ...
                     pass
-            with st.expander("2. Simulación Monte Carlo (Block Bootstrap)"):
-                # ...
-                pass
-            with st.expander("3. Stress Test de Recuperación"):
-                # ...
-                pass
-    else:
-        st.warning("No se encontraron datos para la estrategia seleccionada.")
+                with st.expander("3. Stress Test de Recuperación"):
+                    # ...
+                    pass
+        else:
+            st.warning("No se encontraron datos para la estrategia seleccionada.")
 
 # --- MODO ANÁLISIS INDIVIDUAL --- #
 else:
